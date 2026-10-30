@@ -440,8 +440,8 @@ public final class CacheManager {
             }
         }
         log("manifest: " + all.size() + " entries, " + filtered.size()
-                + " for this device (gpuType=" + gpuType
-                + ", texture format ." + GpuDetector.formatSuffixFor(gpuType) + ")");
+                + " to install (gpuType=" + gpuType
+                + ", every texture family is kept: Load() re-selects the format itself)");
         log("checksums published by the server: " + withHash + "/" + filtered.size()
                 + (withHash < filtered.size()
                 ? " (the rest is verified by length and by the receipt recorded when it was downloaded)"
@@ -451,20 +451,38 @@ public final class CacheManager {
             throw new IllegalStateException("The server returned an empty file list");
         }
 
-        String suffix = GpuDetector.formatSuffixFor(gpuType);
-        boolean hasIndex = false;
+        // Name every texture database the server publishes. This is the only way
+        // to tell afterwards which families were installed and which index the
+        // engine can open.
+        StringBuilder mobileFamilies = new StringBuilder();
+        int texdbEntries = 0;
         for (RemoteFile f : filtered) {
-            if (f.getPath().toLowerCase(Locale.US).endsWith("." + suffix + ".tmb")) {
-                hasIndex = true;
-                break;
+            String lower = f.getPath().toLowerCase(Locale.US);
+            if (!lower.startsWith("texdb/") && !lower.contains("/texdb/")) {
+                continue;
+            }
+            if (texdbEntries < 40) {
+                log("texdb entry: " + f.getPath() + " (" + f.getSize() + " bytes)");
+            }
+            texdbEntries++;
+            if (lower.contains("mobile.") && lower.endsWith(".tmb")) {
+                if (mobileFamilies.length() > 0) {
+                    mobileFamilies.append(", ");
+                }
+                mobileFamilies.append(f.getName());
             }
         }
-        if (!hasIndex) {
-            // The game opens texdb/<db>/<db>.<format>.tmb at startup; without any
-            // index of this family it would crash inside SortEntries no matter
-            // how complete the rest of the cache is.
-            throw new IllegalStateException("The server has no ." + suffix
-                    + " texture database for this GPU");
+        log("texdb entries on the server: " + texdbEntries
+                + (texdbEntries > 40 ? " (first 40 listed)" : ""));
+        log("mobile indices the server publishes: "
+                + (mobileFamilies.length() == 0 ? "none" : mobileFamilies));
+
+        if (mobileFamilies.length() == 0) {
+            // libGTASA opens texdb/mobile/mobile.<family>.tmb during
+            // CGame::InitialiseRenderWare and crashes inside SortEntries when no
+            // index is installed, however complete the rest of the cache is.
+            throw new IllegalStateException(
+                    "The server publishes no mobile.<family>.tmb index at all");
         }
 
         if (manifestCache != null) {
