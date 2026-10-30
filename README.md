@@ -95,6 +95,32 @@ index the engine opens is missing. `libsamp` therefore keeps two safety nets:
 * the launcher gate accepts any installed `mobile.<family>.tmb` for the same
   reason, and only opens the installer when no family is present at all.
 
+### Why connecting to a server used to end the session
+
+The voice button drew `voiceactive`/`voicepassive` from the `samp` texture
+database and dereferenced the result without checking it:
+
+```cpp
+renderer->drawImage(..., recording() ? m_texture_micro_on->raster
+                                     : m_texture_micro_off->raster);
+```
+
+The database this client installs does not contain either name - the log says
+`Texture (samp) not found in database (voiceactive)` - so both pointers were
+null, and the first frame after a server accepted the client read `->raster` at
+address 0. Every session died in `VoiceButton::draw()` right after connecting,
+with `SIGSEGV fault=0x0`.
+
+Now:
+
+* `VoiceButton` draws itself like any other button (background, outline and its
+  `TALK` caption) when the icon is missing, and tries the older
+  `icon_micro_on`/`icon_micro_off` names first,
+* the same null check is applied where the speaker icon, the AFK/micro icon, the
+  voice plugin button and `Image` were dereferenced the same way,
+* a missing icon degrades to a plain `MIC` button, so voice chat stays usable,
+* a CI gate refuses a build where any of those guards disappears.
+
 ### The server address comes from settings.ini
 
 `[client] host` and `[client] port` in

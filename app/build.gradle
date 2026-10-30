@@ -70,6 +70,10 @@ android {
     packagingOptions {
         jniLibs {
             excludes += ['META-INF/*']
+            // Deliberately NOT keepDebugSymbols: keeping the debug information
+            // in the APK pushed it from 65 MB to about 90 MB, and the game
+            // already runs against a 2 GB device. The symbol map reads the
+            // unstripped copy that CMake leaves in the build tree instead.
         }
         resources {
             excludes += ['META-INF/*']

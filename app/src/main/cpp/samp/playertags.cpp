@@ -209,14 +209,16 @@ void CPlayerTags::Draw(ImGuiRenderer* renderer, CVector* vec, const char* szNick
 	ImVec2 a = ImVec2(HealthBarBDR1.x - ((UISettings::fontSize() / 2) * 1.4f), HealthBarBDR1.y);
 	ImVec2 b = ImVec2(a.x + ((UISettings::fontSize() / 2) * 1.3f), a.y + ((UISettings::fontSize() / 2) * 1.3f));
 
-	// micro icon
-	if (bMicro)
+	// micro icon. The "afk_icon" texture is loaded from the samp database and
+	// may not exist there at all; a null texture used to be dereferenced here
+	// whenever a nearby player was talking.
+	if (bMicro && m_pMicroIconTexture != nullptr && m_pMicroIconTexture->raster != nullptr)
 	{
 		ImGui::GetBackgroundDrawList()->AddImage((ImTextureID)m_pMicroIconTexture->raster, a, b);
 	}
 
 	// AFK icon
-	if (bAfk)
+	if (bAfk && m_pAFKIconTexture != nullptr && m_pAFKIconTexture->raster != nullptr)
 	{
 		ImVec2 a = ImVec2(HealthBarBDR1.x - ((UISettings::fontSize() / 2) * 1.4f), HealthBarBDR1.y);
 		ImVec2 b = ImVec2(a.x + ((UISettings::fontSize() / 2) * 1.3f), a.y + ((UISettings::fontSize() / 2) * 1.3f));
