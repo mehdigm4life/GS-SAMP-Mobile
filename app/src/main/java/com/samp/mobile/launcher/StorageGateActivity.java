@@ -20,19 +20,22 @@ import androidx.appcompat.app.AppCompatActivity;
 import androidx.core.content.ContextCompat;
 
 import java.io.File;
-import java.io.FileWriter;
+import java.io.FileOutputStream;
+import java.io.IOException;
 import java.io.PrintWriter;
 import java.io.StringWriter;
 import java.text.SimpleDateFormat;
 import java.util.Date;
 import java.util.Locale;
+import java.util.ArrayList;
+import java.util.List;
 
 /**
  * Launcher entry point that guarantees the game can reach its data before the
- * game activity is started.
+ * game activity is started, and that keeps a readable log on the shared storage.
  *
- * Why this exists
- * ---------------
+ * Why the storage gate exists
+ * ---------------------------
  * The APK targets SDK 34, but the shared cache the game reads lives in
  * /storage/emulated/0/GTA/. From Android 11 (API 30) onwards that path is
  * outside the app sandbox and cannot be reached with READ/WRITE_EXTERNAL_STORAGE
@@ -46,7 +49,18 @@ import java.util.Locale;
  * SplashActivity, which is never started. So the game launched with no access
  * to its own files and closed immediately.
  *
- * This activity asks for exactly that, then hands over to the game.
+ * Why the log lives in /storage/emulated/0/GS-SAMP
+ * -----------------------------------------------
+ * The log used to be written to Android/data/com.samp.mobile/files/, which on
+ * Android 11+ cannot be opened from a file manager, from MTP, or over USB
+ * without ADB: the whole Android/data tree is hidden from other apps and from
+ * the system picker. A crash report that the user cannot reach is useless, so
+ * every diagnostic line is now appended to:
+ *
+ *     /storage/emulated/0/GS-SAMP/logcat.txt
+ *
+ * The native side (FLog in libsamp.so) writes to the same file, so one file
+ * contains the Java lifecycle, the uncaught exception and the game's own log.
  */
 public class StorageGateActivity extends AppCompatActivity {
 
@@ -55,6 +69,17 @@ public class StorageGateActivity extends AppCompatActivity {
     /** Documented cache location, see README. */
     private static final String GAME_ROOT = "/storage/emulated/0/GTA";
 
+    /**
+     * Shared, user-accessible diagnostics folder. Deliberately outside
+     * Android/data so it can be opened by any file manager.
+     */
+    private static final String LOG_DIR = "/storage/emulated/0/GS-SAMP";
+
+    private static final String LOG_FILE = "logcat.txt";
+
+    /** Rotate the log once it grows past this size. */
+    private static final long LOG_MAX_BYTES = 4L * 1024L * 1024L;
+
     private static final String GAME_ACTIVITY = "com.samp.mobile.game.SAMP";
 
     private static final int REQUEST_LEGACY_STORAGE = 1001;
@@ -62,20 +87,33 @@ public class StorageGateActivity extends AppCompatActivity {
     /** Guards against showing the dialog again on every onResume. */
     private boolean dialogShowing = false;
 
+    /**
+     * Lines recorded before storage access is granted. On Android 11+ nothing
+     * may be written to /storage/emulated/0 until the user approves "All files
+     * access", so early lines are held here and flushed as soon as the folder
+     * becomes writable.
+     */
+    private static final List<String> PENDING = new ArrayList<>();
+
+    private static final int PENDING_MAX = 500;
+
     @Override
     protected void onCreate(Bundle savedInstanceState) {
         super.onCreate(savedInstanceState);
 
         installCrashRecorder();
 
-        // Simple placeholder so the user sees something while the system
-        // settings screen is on screen. Built in code to avoid depending on
-        // any layout resource.
         TextView tv = new TextView(this);
         tv.setText("SA-MP Mobile\n\nChecking storage access...");
         tv.setGravity(Gravity.CENTER);
         setContentView(tv);
 
+        logLine("========== session start ==========");
+        logLine("sdk=" + Build.VERSION.SDK_INT
+                + " device=" + Build.MANUFACTURER + " " + Build.MODEL
+                + " abi64=" + (Build.SUPPORTED_64_BIT_ABIS.length > 0
+                        ? Build.SUPPORTED_64_BIT_ABIS[0] : "none")
+                + " storageAccess=" + hasStorageAccess());
         Log.i(TAG, "onCreate; sdk=" + Build.VERSION.SDK_INT
                 + " storageManager=" + hasStorageAccess());
     }
@@ -85,8 +123,11 @@ public class StorageGateActivity extends AppCompatActivity {
         super.onResume();
         if (hasStorageAccess()) {
             dialogShowing = false;
+            ensureLogDir();
+            logLine("storage access granted");
             startGameIfPossible();
         } else if (!dialogShowing) {
+            logLine("storage access NOT granted");
             askForStorageAccess();
         }
     }
@@ -182,6 +223,7 @@ public class StorageGateActivity extends AppCompatActivity {
         boolean granted = grantResults.length > 0
                 && grantResults[0] == PackageManager.PERMISSION_GRANTED;
         Log.i(TAG, "legacy storage granted=" + granted);
+        logLine("legacy storage granted=" + granted);
         if (granted) {
             startGameIfPossible();
         } else if (!dialogShowing) {
@@ -197,11 +239,13 @@ public class StorageGateActivity extends AppCompatActivity {
         File root = new File(GAME_ROOT);
         if (!root.isDirectory()) {
             Log.w(TAG, "game root missing: " + GAME_ROOT);
+            logLine("game root MISSING: " + GAME_ROOT);
             new AlertDialog.Builder(this)
                     .setTitle("Game data not found")
                     .setMessage("Storage access is granted, but this folder does not exist yet:\n\n"
                             + GAME_ROOT
-                            + "\n\nExtract the GTA cache there (it must contain the \"data\" folder), then reopen the app.")
+                            + "\n\nExtract the GTA cache there (it must contain the \"data\" folder), then reopen the app."
+                            + "\n\nDiagnostics are written to:\n" + LOG_DIR + "/" + LOG_FILE)
                     .setCancelable(false)
                     .setPositiveButton("Continue anyway", new DialogInterface.OnClickListener() {
                         @Override
@@ -222,6 +266,8 @@ public class StorageGateActivity extends AppCompatActivity {
     }
 
     private void launchGame() {
+        ensureLogDir();
+        logLine("launching " + GAME_ACTIVITY);
         try {
             // Resolved by name so the game class (and therefore its static
             // System.loadLibrary() block) is not touched until the intent is
@@ -233,7 +279,101 @@ public class StorageGateActivity extends AppCompatActivity {
             finish();
         } catch (Throwable t) {
             Log.e(TAG, "cannot launch game", t);
+            logLine("cannot launch game: " + Log.getStackTraceString(t));
             Toast.makeText(this, "Cannot start the game: " + t, Toast.LENGTH_LONG).show();
+        }
+    }
+
+    // ------------------------------------------------------------------
+    // Diagnostics file: /storage/emulated/0/GS-SAMP/logcat.txt
+    // ------------------------------------------------------------------
+
+    private static String timestamp() {
+        return new SimpleDateFormat("yyyy-MM-dd HH:mm:ss.SSS", Locale.US).format(new Date());
+    }
+
+    private File logFile() {
+        return new File(new File(LOG_DIR), LOG_FILE);
+    }
+
+    /** Creates /storage/emulated/0/GS-SAMP if storage access allows it. */
+    private void ensureLogDir() {
+        try {
+            File dir = new File(LOG_DIR);
+            if (!dir.isDirectory() && !dir.mkdirs() && !dir.isDirectory()) {
+                Log.w(TAG, "cannot create " + LOG_DIR);
+            }
+        } catch (Throwable t) {
+            Log.w(TAG, "cannot create " + LOG_DIR, t);
+        }
+    }
+
+    /**
+     * Appends one line to GS-SAMP/logcat.txt and mirrors it to logcat.
+     *
+     * Nothing can be written to shared storage before "All files access" is
+     * granted, so lines are queued and replayed on the first successful write.
+     */
+    private synchronized void logLine(String message) {
+        Log.i(TAG, message);
+        String line = "[" + timestamp() + "] " + message;
+
+        File out = logFile();
+        if (out.getParentFile() != null && !out.getParentFile().isDirectory()) {
+            ensureLogDir();
+        }
+
+        boolean written = appendTo(out, line + "\n");
+        if (!written) {
+            if (PENDING.size() < PENDING_MAX) {
+                PENDING.add(line);
+            }
+            return;
+        }
+
+        if (!PENDING.isEmpty()) {
+            StringBuilder sb = new StringBuilder();
+            for (String pendingLine : PENDING) {
+                sb.append(pendingLine).append('\n');
+            }
+            PENDING.clear();
+            appendTo(out, sb.toString());
+        }
+    }
+
+    private boolean appendTo(File file, String text) {
+        FileOutputStream fos = null;
+        try {
+            rotateIfNeeded(file);
+            fos = new FileOutputStream(file, true);
+            fos.write(text.getBytes("UTF-8"));
+            fos.flush();
+            return true;
+        } catch (Throwable t) {
+            // Expected before the storage permission is granted.
+            return false;
+        } finally {
+            if (fos != null) {
+                try {
+                    fos.close();
+                } catch (IOException ignored) {
+                }
+            }
+        }
+    }
+
+    private void rotateIfNeeded(File file) {
+        try {
+            if (file.length() > LOG_MAX_BYTES) {
+                File old = new File(file.getParentFile(), LOG_FILE + ".old");
+                if (old.exists() && !old.delete()) {
+                    return;
+                }
+                if (!file.renameTo(old)) {
+                    Log.w(TAG, "log rotation failed");
+                }
+            }
+        } catch (Throwable ignored) {
         }
     }
 
@@ -242,11 +382,11 @@ public class StorageGateActivity extends AppCompatActivity {
     // ------------------------------------------------------------------
 
     /**
-     * Writes any uncaught Java exception to
-     * /storage/emulated/0/Android/data/com.samp.mobile/files/last_crash.txt,
-     * which is readable over USB without any permission. Native crashes are
-     * handled separately by the signal handlers installed in libsamp.so, which
-     * append to /storage/emulated/0/GTA/samp_log.txt.
+     * Appends any uncaught Java exception to the same logcat.txt, so a single
+     * file always holds the reason the app exited.
+     *
+     * Native crashes are handled separately by the signal handlers installed in
+     * libsamp.so, which write to the same file through FLog().
      */
     private void installCrashRecorder() {
         final Thread.UncaughtExceptionHandler previous =
@@ -256,19 +396,10 @@ public class StorageGateActivity extends AppCompatActivity {
             @Override
             public void uncaughtException(@NonNull Thread thread, @NonNull Throwable error) {
                 try {
-                    File dir = getExternalFilesDir(null);
-                    if (dir == null) {
-                        dir = new File("/storage/emulated/0/Android/data/" + getPackageName() + "/files");
-                    }
-                    if (!dir.exists()) {
-                        dir.mkdirs();
-                    }
-                    File out = new File(dir, "last_crash.txt");
-
                     StringWriter sw = new StringWriter();
                     PrintWriter pw = new PrintWriter(sw);
-                    pw.println("time   : " + new SimpleDateFormat("yyyy-MM-dd HH:mm:ss", Locale.US)
-                            .format(new Date()));
+                    pw.println("========== FATAL JAVA EXCEPTION ==========");
+                    pw.println("time   : " + timestamp());
                     pw.println("thread : " + thread.getName());
                     pw.println("sdk    : " + Build.VERSION.SDK_INT);
                     pw.println("device : " + Build.MANUFACTURER + " " + Build.MODEL);
@@ -276,14 +407,25 @@ public class StorageGateActivity extends AppCompatActivity {
                             ? Build.SUPPORTED_64_BIT_ABIS[0] : "none"));
                     pw.println();
                     error.printStackTrace(pw);
+                    pw.println("==========================================");
                     pw.flush();
 
-                    FileWriter fw = new FileWriter(out, true);
-                    fw.write(sw.toString());
-                    fw.write("\n-----------------------------\n");
-                    fw.close();
+                    String report = sw.toString();
 
-                    Log.e(TAG, "crash written to " + out.getAbsolutePath());
+                    // Try GS-SAMP first; that is the file the user can open.
+                    ensureLogDir();
+                    if (!appendTo(logFile(), report)) {
+                        // The process is already dying here, so a queued line
+                        // would be lost. Keep a last-resort copy in app-specific
+                        // storage, reachable with: adb shell run-as com.samp.mobile
+                        File fallbackDir = getFilesDir();
+                        File fallback = new File(fallbackDir, LOG_FILE);
+                        if (appendTo(fallback, report)) {
+                            Log.e(TAG, "crash written to private fallback: " + fallback);
+                        }
+                    } else {
+                        Log.e(TAG, "crash written to " + logFile().getAbsolutePath());
+                    }
                 } catch (Throwable ignored) {
                     // Never mask the original crash.
                 }
