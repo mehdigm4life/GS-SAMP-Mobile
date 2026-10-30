@@ -109,6 +109,20 @@ jobs:
           ls "$ANDROID_HOME/platforms" || true
           grep distributionUrl gradle/wrapper/gradle-wrapper.properties
 
+      - name: Probe PRDownloader availability
+        run: |
+          {
+            echo "artifact availability probe:"
+            for u in \
+              https://jitpack.io/com/github/amitshekhariitbhu/Android-PRDownloader/1.0.1/Android-PRDownloader-1.0.1.pom \
+              https://jitpack.io/com/github/amitshekhariitbhu/PRDownloader/1.0.1/PRDownloader-1.0.1.pom \
+              https://repo1.maven.org/maven2/com/mindorks/android/prdownloader/0.6.0/prdownloader-0.6.0.pom ; do
+              code=$(curl -s -o /dev/null -w '%{http_code}' -L --max-time 25 "$u" || echo ERR)
+              echo "  $code  $u"
+            done
+          } | tee probe.log
+          { echo '### Dependency probe'; echo '```'; cat probe.log; echo '```'; } >> "$GITHUB_STEP_SUMMARY"
+
       - name: Build debug APK
         run: |
           chmod +x gradlew
@@ -122,9 +136,12 @@ jobs:
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
-          if [ ! -f build.log ]; then echo "build.log missing"; exit 0; fi
           {
-            echo 'Gradle build failed. Tail of the log:'
+            echo 'Gradle build failed.'
+            echo ''
+            if [ -f probe.log ]; then echo 'Probe:'; echo '```'; cat probe.log; echo '```'; echo ''; fi
+            if [ ! -f build.log ]; then echo 'build.log missing'; exit 0; fi
+            echo 'Tail of the log:'
             echo ''
             echo '```'
             tail -c 30000 build.log
