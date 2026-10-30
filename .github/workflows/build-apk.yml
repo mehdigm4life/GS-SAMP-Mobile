@@ -223,7 +223,7 @@ jobs:
       # read it: an issue with the candidate libraries, the nearest symbol, the
       # source line and the disassembly around each offset.
       - name: Publish the native symbol map as an issue
-        if: contains(github.event.head_commit.message, '[dump-symbols]') || (github.event_name == 'workflow_dispatch' && inputs.dump_symbols)
+        if: contains(github.event.pull_request.title || '', '[dump-symbols]') || contains(github.event.head_commit.message || '', '[dump-symbols]') || (github.event_name == 'workflow_dispatch' && inputs.dump_symbols)
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           OFFSETS: ${{ inputs.symbol_offsets }}
@@ -255,7 +255,7 @@ jobs:
             echo
             echo "## Candidate libraries"
             echo '```'
-            find app -name 'libsamp.so' -type f -printf '%s %p\n' 2>/dev/null | sort -rn | head -10
+            find app -name 'libsamp*.so' -type f -printf '%s %p\n' 2>/dev/null | sort -rn | head -10
             echo '```'
           } > syms.md
 
@@ -273,7 +273,7 @@ jobs:
             echo '```'
           } >> syms.md
 
-          for so in "$tmp/lib/arm64-v8a/libsamp.so" $(find app -name 'libsamp.so' -type f 2>/dev/null); do
+          for so in "$tmp/lib/arm64-v8a/libsamp.so" $(find app -name 'libsamp*.so' -type f 2>/dev/null); do
             [ -f "$so" ] || continue
             count=$("$NM" -C --defined-only "$so" 2>/dev/null | wc -l)
             {
@@ -327,7 +327,7 @@ jobs:
           # largest libsamp.so that still has symbols is the one to read.
           SO=""
           for candidate in "$tmp/lib/arm64-v8a/libsamp.so" \
-                           $(find app/build app/.cxx -name 'libsamp.so' -type f 2>/dev/null); do
+                           $(find app/build app/.cxx -name 'libsamp*.so' -type f 2>/dev/null); do
             [ -f "$candidate" ] || continue
             count=$("$NM" -C --defined-only "$candidate" 2>/dev/null | wc -l)
             echo "candidate: $candidate ($count symbols)"
