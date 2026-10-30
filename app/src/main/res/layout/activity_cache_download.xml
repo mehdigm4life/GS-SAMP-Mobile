@@ -254,40 +254,43 @@
                 android:textColor="@color/cache_warn"
                 android:textSize="12sp" />
 
-            <!-- Controls  -->
+            <!-- Controls: the primary action and cancel always share one row.
+                 Every layout_* attribute is written here instead of coming from
+                 a style, so the two buttons can never end up on separate lines. -->
             <LinearLayout
                 android:layout_width="match_parent"
                 android:layout_height="wrap_content"
                 android:layout_marginTop="16dp"
+                android:baselineAligned="false"
                 android:orientation="horizontal">
 
                 <Button
                     android:id="@+id/btn_toggle"
                     style="@style/CacheActionButton"
+                    android:layout_width="0dp"
+                    android:layout_height="54dp"
+                    android:layout_weight="1"
                     android:background="@drawable/cache_btn_primary"
                     android:drawableStart="@drawable/cache_ic_download"
+                    android:minWidth="0dp"
+                    android:minHeight="0dp"
                     android:text="@string/cache_btn_start" />
 
                 <Button
                     android:id="@+id/btn_cancel"
                     style="@style/CacheActionButton"
+                    android:layout_width="0dp"
+                    android:layout_height="54dp"
                     android:layout_marginStart="12dp"
+                    android:layout_weight="1"
                     android:background="@drawable/cache_btn_danger"
                     android:drawableStart="@drawable/cache_ic_cancel"
+                    android:minWidth="0dp"
+                    android:minHeight="0dp"
                     android:text="@string/cache_btn_cancel"
                     android:textColor="@color/cache_error"
                     android:visibility="gone" />
             </LinearLayout>
-
-            <Button
-                android:id="@+id/btn_retry"
-                style="@style/CacheActionButton"
-                android:layout_width="match_parent"
-                android:layout_marginTop="12dp"
-                android:background="@drawable/cache_btn_secondary"
-                android:drawableStart="@drawable/cache_ic_refresh"
-                android:text="@string/cache_btn_retry"
-                android:visibility="gone" />
 
             <!-- Diagnostics  -->
             <LinearLayout

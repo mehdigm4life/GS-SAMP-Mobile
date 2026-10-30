@@ -14,9 +14,11 @@ import java.nio.file.Files;
 import java.security.MessageDigest;
 import java.util.LinkedHashMap;
 import java.util.Map;
+import java.util.concurrent.atomic.AtomicInteger;
 
 import static org.junit.Assert.assertEquals;
 import static org.junit.Assert.assertFalse;
+import static org.junit.Assert.assertNotEquals;
 import static org.junit.Assert.assertTrue;
 
 /**
@@ -211,6 +213,64 @@ public class CacheManagerTest {
         assertEquals(0, server.hits("/files/data/b.dat"));
         assertEquals(0, server.hits("/files/models/c.dat"));
         assertEquals(0, server.hits("/files/texdb/x.etc.dat"));
+    }
+
+    /**
+     * The reported bug: the page sat on "idle" after "Install files" until the
+     * user found the retry button. Pressing the button must move the install
+     * out of IDLE immediately, without waiting for the worker thread.
+     */
+    @Test
+    public void startLeavesIdleImmediately() throws Exception {
+        CacheManager manager = new CacheManager(root,
+                "http://127.0.0.1:1/client_config.json", null, GpuDetector.DXT);
+
+        assertEquals(CacheManager.Stage.IDLE, manager.getStage());
+        manager.start();
+        assertNotEquals("the page must not look idle after the start button",
+                CacheManager.Stage.IDLE, manager.getStage());
+
+        manager.cancel();
+    }
+
+    /**
+     * A cold start often loses the first connection (radio waking up, DNS not
+     * ready). That used to end in FAILED, so the user had to press retry by
+     * hand; it must now recover on its own.
+     */
+    @Test
+    public void transientServerErrorsAreRetriedWithoutUserAction() throws Exception {
+        publishManifest();
+
+        final AtomicInteger configCalls = new AtomicInteger();
+        server.close();
+        server = new FakeServer(new FakeServer.Handler() {
+            @Override
+            public void handle(FakeServer.Request request, OutputStream out) throws IOException {
+                if ("/client_config.json".equals(request.path)) {
+                    if (configCalls.incrementAndGet() <= 2) {
+                        FakeServer.sendBody(out, 500, "boom".getBytes("UTF-8"));
+                        return;
+                    }
+                    FakeServer.sendBody(out, 200, ("{\"client_config\":{\"version_code\":1,"
+                            + "\"url_cache_files\":\"files.json\"}}").getBytes("UTF-8"));
+                    return;
+                }
+                byte[] body = bodies.get(request.path);
+                if (body == null) {
+                    FakeServer.sendNotFound(out);
+                    return;
+                }
+                FakeServer.sendBody(out, 200, body);
+            }
+        });
+
+        CacheManager manager = new CacheManager(root, configUrl(), null, GpuDetector.DXT);
+        manager.start();
+
+        assertTrue("the installer must recover from a transient failure by itself",
+                awaitStage(manager, CacheManager.Stage.COMPLETE, 90000));
+        assertEquals("two failures then a success", 3, configCalls.get());
     }
 
     @Test

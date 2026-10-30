@@ -27,6 +27,7 @@
     <string name="cache_btn_cancel">Cancel</string>
     <string name="cache_btn_retry">Retry</string>
     <string name="cache_btn_play">Start game</string>
+    <string name="cache_btn_working">Working…</string>
 
     <string name="cache_verify_pending">Files not verified yet</string>
     <string name="cache_verify_running">Verifying every file…</string>
@@ -41,8 +42,7 @@
     <string name="cache_exit_stay">Keep downloading</string>
     <string name="cache_exit_leave">Leave</string>
 
-    <string name="cache_mobile_data_warning">You are on mobile data. The game files are large, so Wi\u2011Fi is recommended to avoid using your data allowance. Continue on mobile data anyway?</string>
-    <string name="cache_mobile_data_continue">Continue on data</string>
+    <string name="cache_mobile_data_note">You are on mobile data — the download will use your data allowance. You can pause at any time.</string>
 
     <string name="cache_failed_title">Download failed</string>
     <string name="cache_retry_hint">Check the internet connection and retry. Details are in the log below.</string>
