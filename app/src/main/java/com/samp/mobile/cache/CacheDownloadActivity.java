@@ -114,7 +114,10 @@ public class CacheDownloadActivity extends AppCompatActivity implements CacheMan
 
         int gpuType = GpuDetector.detect();
         DiagLog.line("installer opened: root=" + root.getAbsolutePath()
-                + " gpuType=" + gpuType + " renderer=\"" + GpuDetector.lastRenderer() + "\"");
+                + " gpuType=" + gpuType
+                + " texture=." + GpuDetector.formatSuffixFor(gpuType)
+                + " renderer=\"" + GpuDetector.lastRenderer() + "\"");
+        DiagLog.line("gl extensions: " + GpuDetector.lastExtensions());
         if (missing != null && !missing.trim().isEmpty()) {
             DiagLog.line("gate reported: " + missing);
         }

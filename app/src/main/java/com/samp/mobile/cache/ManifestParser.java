@@ -225,12 +225,24 @@ public final class ManifestParser {
     }
 
     /**
-     * The cache ships texture variants for three GPU families
-     * (.dxt. / .etc. / .pvr.). Downloading all three would triple the size, so
-     * only the variant matching this device is kept.
+     * The cache ships every texture database in four flavours, and the game opens
+     * exactly one of them at startup:
      *
-     * Files under player/, playerhi/, menu/ or samp/ exist as a single copy and
-     * are always kept, mirroring the original client.
+     * <pre>
+     *   texdb/mobile/mobile.dxt      + texdb/mobile/mobile.dxt.tmb
+     *   texdb/mobile/mobile.pvr      + texdb/mobile/mobile.pvr.tmb
+     *   texdb/mobile/mobile.etc      + texdb/mobile/mobile.etc.tmb
+     *                                  texdb/mobile/mobile.unc.tmb
+     * </pre>
+     *
+     * Only files under {@code texdb/} carry a GPU flavour; everything else in the
+     * cache is shared.
+     *
+     * The token match is deliberately not {@code contains(".dxt.")}: the data
+     * file is named {@code mobile.dxt} and has no trailing dot, so that test kept
+     * all three data files while filtering only the indices - which downloaded
+     * two thirds more data than needed and still left the game looking for an
+     * index that was never fetched.
      *
      * @param gpuType 1 = DXT, 2 = ETC, 3 = PVR; any other value keeps everything
      */
@@ -240,21 +252,51 @@ public final class ManifestParser {
         }
         String lower = path.toLowerCase(Locale.US);
 
-        boolean shared = lower.contains("player") || lower.contains("playerhi")
-                || lower.contains("menu") || lower.contains("samp");
-        if (shared || gpuType <= 0) {
+        if (gpuType <= 0) {
             return true;
         }
-        if (lower.contains(".dxt.")) {
-            return gpuType == 1;
+        if (!lower.startsWith("texdb/") && !lower.contains("/texdb/")) {
+            // Not a texture database: no per-GPU variants exist here.
+            return true;
         }
-        if (lower.contains(".etc.")) {
-            return gpuType == 2;
+
+        boolean dxt = hasFormatToken(lower, "dxt");
+        boolean pvr = hasFormatToken(lower, "pvr");
+        boolean etc = hasFormatToken(lower, "etc");
+
+        if (!dxt && !pvr && !etc) {
+            // e.g. mobile.unc.tmb or a plain texture: shared by every device.
+            return true;
         }
-        if (lower.contains(".pvr.")) {
-            return gpuType == 3;
+
+        if (dxt) {
+            return gpuType == GpuDetector.DXT;
         }
-        return true;
+        if (pvr) {
+            return gpuType == GpuDetector.PVR;
+        }
+        return gpuType == GpuDetector.ETC;
+    }
+
+    /**
+     * True when the path contains ".token" as a standalone suffix, so
+     * {@code mobile.dxt} and {@code mobile.dxt.tmb} match but
+     * {@code mobile.dxt1} does not.
+     */
+    static boolean hasFormatToken(String lowerPath, String token) {
+        String needle = "." + token;
+        int from = 0;
+        while (true) {
+            int at = lowerPath.indexOf(needle, from);
+            if (at < 0) {
+                return false;
+            }
+            int after = at + needle.length();
+            if (after >= lowerPath.length() || lowerPath.charAt(after) == '.') {
+                return true;
+            }
+            from = at + 1;
+        }
     }
 
     /**

@@ -355,10 +355,27 @@ public final class CacheManager {
         List<RemoteFile> all = ManifestParser.parseFileList(listJson, listUrl);
         List<RemoteFile> filtered = ManifestParser.filterForDevice(all, gpuType);
         log("manifest: " + all.size() + " entries, " + filtered.size()
-                + " for this device (gpuType=" + gpuType + ")");
+                + " for this device (gpuType=" + gpuType
+                + ", texture format ." + GpuDetector.formatSuffixFor(gpuType) + ")");
 
         if (filtered.isEmpty()) {
             throw new IllegalStateException("The server returned an empty file list");
+        }
+
+        String suffix = GpuDetector.formatSuffixFor(gpuType);
+        boolean hasIndex = false;
+        for (RemoteFile f : filtered) {
+            if (f.getPath().toLowerCase(Locale.US).endsWith("." + suffix + ".tmb")) {
+                hasIndex = true;
+                break;
+            }
+        }
+        if (!hasIndex) {
+            // The game opens texdb/<db>/<db>.<format>.tmb at startup; without any
+            // index of this family it would crash inside SortEntries no matter
+            // how complete the rest of the cache is.
+            throw new IllegalStateException("The server has no ." + suffix
+                    + " texture database for this GPU");
         }
 
         totalBytes = totalBytesOf(filtered);
@@ -539,10 +556,35 @@ public final class CacheManager {
         emit();
     }
 
+    /**
+     * Sends one line to the listener.
+     *
+     * The callback is marshalled onto the supplied executor: the listener is a
+     * view and appends to a TextView, and touching a view from this worker threw
+     * {@code CalledFromWrongThreadException}. That exception used to be caught by
+     * the connect() retry loop and reported as "connection problem", which hid
+     * the real cause and cost an extra 1.5s on every install.
+     */
     private void log(String line) {
-        Listener l = listener;
-        if (l != null) {
-            l.onLog(line);
+        final Listener l = listener;
+        if (l == null) {
+            return;
+        }
+        final String text = line;
+        Runnable r = new Runnable() {
+            @Override
+            public void run() {
+                l.onLog(text);
+            }
+        };
+        if (callbacks != null) {
+            try {
+                callbacks.execute(r);
+            } catch (Throwable ignored) {
+                r.run();
+            }
+        } else {
+            r.run();
         }
     }
 

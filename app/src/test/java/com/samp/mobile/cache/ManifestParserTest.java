@@ -129,6 +129,88 @@ public class ManifestParserTest {
         assertEquals(GpuDetector.DXT, GpuDetector.fromRenderer(""));
     }
 
+    /**
+     * The crash from the device log: a PowerVR Rogue GE8320 was told to download
+     * the PVR index, while the game - which probes GL extensions - opened
+     * mobile.dxt.tmb and died with SIGSEGV when it was not there.
+     */
+    @Test
+    public void videoCardVendorDoesNotOverrideExtensionProbe() {
+        // Exactly what this device advertises: a PowerVR name plus S3TC support.
+        String extensions = "GL_EXT_texture_compression_s3tc GL_IMG_texture_compression_pvrtc "
+                + "GL_OES_compressed_ETC1_RGB8_texture GL_EXT_texture_filter_anisotropic";
+        assertEquals("the game follows the extensions, so must we",
+                GpuDetector.DXT,
+                GpuDetector.decide("PowerVR Rogue GE8320", extensions));
+        assertEquals("dxt", GpuDetector.formatSuffixFor(
+                GpuDetector.decide("PowerVR Rogue GE8320", extensions)));
+    }
+
+    @Test
+    public void extensionProbeOrderIsS3tcThenPvrtcThenEtc() {
+        assertEquals(GpuDetector.DXT, GpuDetector.fromExtensions(EXT_S3TC_ONLY));
+        assertEquals(GpuDetector.PVR, GpuDetector.fromExtensions(EXT_PVRTC_ONLY));
+        assertEquals(GpuDetector.ETC, GpuDetector.fromExtensions(EXT_ATC_ONLY));
+        // Nothing but the compulsory ETC1: .etc is the only usable family.
+        assertEquals(GpuDetector.ETC, GpuDetector.fromExtensions("GL_OES_compressed_ETC1_RGB8_texture"));
+        // DXT1 counts as S3TC.
+        assertEquals(GpuDetector.DXT, GpuDetector.fromExtensions("GL_EXT_texture_compression_dxt1"));
+    }
+
+    private static final String EXT_S3TC_ONLY = "GL_EXT_texture_compression_s3tc";
+    private static final String EXT_PVRTC_ONLY = "GL_IMG_texture_compression_pvrtc";
+    private static final String EXT_ATC_ONLY = "GL_AMD_compressed_ATC_texture";
+
+    @Test
+    public void textureDatabaseFilesAreFilteredByRealExtension() {
+        // The data file has no trailing dot: ".dxt." used to miss it entirely.
+        assertTrue(ManifestParser.hasFormatToken("texdb/mobile/mobile.dxt", "dxt"));
+        assertTrue(ManifestParser.hasFormatToken("texdb/mobile/mobile.dxt.tmb", "dxt"));
+        assertTrue(ManifestParser.hasFormatToken("texdb/mobile/mobile.pvr", "pvr"));
+        assertFalse("dxt1 is a different token",
+                ManifestParser.hasFormatToken("texdb/mobile/mobile.dxt1", "dxt"));
+        assertFalse(ManifestParser.hasFormatToken("texdb/mobile/mobile.pvr", "dxt"));
+
+        assertTrue(ManifestParser.matchesGpu("texdb/mobile/mobile.dxt", GpuDetector.DXT));
+        assertFalse(ManifestParser.matchesGpu("texdb/mobile/mobile.dxt", GpuDetector.PVR));
+        assertTrue(ManifestParser.matchesGpu("texdb/mobile/mobile.pvr.tmb", GpuDetector.PVR));
+        assertFalse(ManifestParser.matchesGpu("texdb/mobile/mobile.pvr.tmb", GpuDetector.DXT));
+
+        // The uncompressed index is shared by every family.
+        assertTrue(ManifestParser.matchesGpu("texdb/mobile/mobile.unc.tmb", GpuDetector.DXT));
+        assertTrue(ManifestParser.matchesGpu("texdb/mobile/mobile.unc.tmb", GpuDetector.PVR));
+
+        // Files outside texdb/ have no variants and are always kept.
+        assertTrue(ManifestParser.matchesGpu("data/main.scm", GpuDetector.PVR));
+        assertTrue(ManifestParser.matchesGpu("player/player.dxt.dat", GpuDetector.PVR));
+    }
+
+    @Test
+    public void aDxtDeviceKeepsTheDxtIndexTheGameOpens() throws Exception {
+        String json = "{\"files\":["
+                + "{\"path\":\"texdb/mobile/mobile.dxt\",\"size\":1},"
+                + "{\"path\":\"texdb/mobile/mobile.dxt.tmb\",\"size\":1},"
+                + "{\"path\":\"texdb/mobile/mobile.pvr\",\"size\":1},"
+                + "{\"path\":\"texdb/mobile/mobile.pvr.tmb\",\"size\":1},"
+                + "{\"path\":\"texdb/mobile/mobile.etc\",\"size\":1},"
+                + "{\"path\":\"texdb/mobile/mobile.unc.tmb\",\"size\":1}"
+                + "]}";
+        List<RemoteFile> all = ManifestParser.parseFileList(json, "https://host/f.json");
+
+        java.util.Set<String> kept = new java.util.HashSet<>();
+        for (RemoteFile f : ManifestParser.filterForDevice(all, GpuDetector.DXT)) {
+            kept.add(f.getPath());
+        }
+
+        assertTrue("the index libGTASA opens must be installed",
+                kept.contains("texdb/mobile/mobile.dxt.tmb"));
+        assertTrue(kept.contains("texdb/mobile/mobile.dxt"));
+        assertTrue(kept.contains("texdb/mobile/mobile.unc.tmb"));
+        assertFalse("the PVR copy does not have to be downloaded", kept.contains("texdb/mobile/mobile.pvr"));
+        assertFalse(kept.contains("texdb/mobile/mobile.etc"));
+        assertEquals("only the DXT pair plus the shared index", 3, kept.size());
+    }
+
     @Test
     public void resolvesRelativeUrls() {
         assertEquals("https://host/x.json",
