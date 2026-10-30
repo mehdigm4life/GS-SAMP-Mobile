@@ -234,14 +234,11 @@ jobs:
           # largest libsamp.so that still has symbols is the one to read.
           SO=""
           for candidate in "$tmp/lib/arm64-v8a/libsamp.so" \
-                           $(find app -name 'libsamp.so' -path '*arm64-v8a*' -type f 2>/dev/null); do
+                           $(find app/build app/.cxx -name 'libsamp.so' -type f 2>/dev/null); do
             [ -f "$candidate" ] || continue
             count=$("$NM" -C --defined-only "$candidate" 2>/dev/null | wc -l)
             echo "candidate: $candidate ($count symbols)"
-            case "$candidate" in
-              "$tmp"*) ;;
-              *) if [ "$count" -gt 100 ]; then SO="$candidate"; fi ;;
-            esac
+            if [ "$count" -gt 100 ]; then SO="$candidate"; fi
           done
           if [ -z "$SO" ]; then
             echo "::notice::no unstripped libsamp.so in the build tree"
