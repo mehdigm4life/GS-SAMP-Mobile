@@ -92,6 +92,14 @@ public final class CacheManager {
     private final Executor callbacks;
     private final int gpuType;
 
+    /** App-private folder for the manifest copy and the file receipts. */
+    private final File stateDir;
+    private ReceiptStore receipts;
+    private ManifestCache manifestCache;
+
+    /** True when the file list came from the local copy because the server was unreachable. */
+    private volatile boolean offline = false;
+
     private volatile Listener listener;
 
     private volatile Stage stage = Stage.IDLE;
@@ -119,14 +127,32 @@ public final class CacheManager {
     private long lastSampleBytes;
 
     public CacheManager(File root, Executor callbacks, int gpuType) {
-        this(root, DEFAULT_CONFIG_URL, callbacks, gpuType);
+        this(root, DEFAULT_CONFIG_URL, callbacks, gpuType, null);
     }
 
     public CacheManager(File root, String configUrl, Executor callbacks, int gpuType) {
+        this(root, configUrl, callbacks, gpuType, null);
+    }
+
+    /**
+     * @param stateDir app-private folder used for the local manifest copy and
+     *                 the per-file receipts; null disables both
+     */
+    public CacheManager(File root, String configUrl, Executor callbacks, int gpuType,
+                        File stateDir) {
         this.root = root;
         this.configUrl = configUrl;
         this.callbacks = callbacks;
         this.gpuType = gpuType;
+        this.stateDir = stateDir;
+        if (stateDir != null) {
+            this.receipts = new ReceiptStore(new File(stateDir, "receipts.json"));
+            this.manifestCache = new ManifestCache(new File(stateDir, "manifest.json"));
+        }
+    }
+
+    public boolean isOffline() {
+        return offline;
     }
 
     public void setListener(Listener listener) {
@@ -185,10 +211,13 @@ public final class CacheManager {
         cancelFlag = false;
         pauseFlag = false;
         setStage(Stage.CONNECTING, "Contacting server...");
+        // After an offline pass the in-memory list came from the local copy;
+        // retrying is the player asking for a fresh attempt, so go online again.
+        final boolean reuse = !offline;
         worker = new Thread(new Runnable() {
             @Override
             public void run() {
-                runPasses(manifest);
+                runPasses(reuse ? manifest : null);
             }
         }, "cache-manager");
         worker.setDaemon(true);
@@ -251,16 +280,44 @@ public final class CacheManager {
 
             for (int pass = 0; pass < MAX_PASSES && !isCancelled(); pass++) {
                 setStage(Stage.VERIFYING, "Checking local files...");
-                FileVerifier.Result result = FileVerifier.verify(root, files, null);
+                FileVerifier.Result result = FileVerifier.verify(root, files, receipts, null);
                 verifySummary = result.describeProblems();
                 log(String.format(Locale.US, "pass %d: %d/%d verified (%s)",
                         pass + 1, result.okCount(), result.totalCount(), verifySummary));
 
                 if (result.isComplete()) {
+                    if (receipts != null) {
+                        receipts.save();
+                    }
                     doneBytes = totalBytesOf(files);
                     filesDone = files.size();
                     setStage(Stage.COMPLETE, "All files verified");
                     return;
+                }
+
+                if (offline) {
+                    // The local copy of the manifest lets us verify offline, but
+                    // it cannot conjure the missing bytes.
+                    setStage(Stage.FAILED,
+                            "No internet connection: " + verifySummary
+                                    + ". Connect and try again.");
+                    return;
+                }
+
+                // A file the verifier rejected must not survive into the
+                // download pass: the engine skips anything whose length already
+                // matches, which is exactly the case for a same-length damaged
+                // file. Removing it here makes "verification said broken" and
+                // "download will replace it" the same statement.
+                for (FileVerifier.Entry entry : result.entries) {
+                    if (entry.isOk() || entry.status == FileVerifier.Status.MISSING) {
+                        continue;
+                    }
+                    File damaged = new File(root, entry.remote.getPath());
+                    if (damaged.isFile() && damaged.delete()) {
+                        log("removing damaged file (" + entry.status + "): "
+                                + entry.remote.getPath());
+                    }
                 }
 
                 long allBytes = totalBytesOf(files);
@@ -339,8 +396,30 @@ public final class CacheManager {
             }
         }
 
+        // Every attempt failed. The local copy of the manifest still lets the
+        // tree be verified, and a complete tree still lets the game start.
+        if (manifestCache != null) {
+            List<RemoteFile> cached = manifestCache.load();
+            if (cached != null) {
+                log("server unreachable (" + describe(last)
+                        + "), verifying against the manifest saved on "
+                        + java.text.DateFormat.getDateTimeInstance()
+                        .format(new java.util.Date(manifestCacheFile().lastModified())));
+                offline = true;
+                setStage(Stage.VERIFYING, "Offline: checking against the saved file list");
+                totalBytes = totalBytesOf(cached);
+                filesTotal = cached.size();
+                emit();
+                return cached;
+            }
+        }
+
         setStage(Stage.FAILED, describe(last));
         return null;
+    }
+
+    private File manifestCacheFile() {
+        return stateDir == null ? null : new File(stateDir, "manifest.json");
     }
 
     /** One full attempt: client_config.json, then the file list. */
@@ -354,9 +433,19 @@ public final class CacheManager {
 
         List<RemoteFile> all = ManifestParser.parseFileList(listJson, listUrl);
         List<RemoteFile> filtered = ManifestParser.filterForDevice(all, gpuType);
+        int withHash = 0;
+        for (RemoteFile f : filtered) {
+            if (f.hasHash()) {
+                withHash++;
+            }
+        }
         log("manifest: " + all.size() + " entries, " + filtered.size()
                 + " for this device (gpuType=" + gpuType
                 + ", texture format ." + GpuDetector.formatSuffixFor(gpuType) + ")");
+        log("checksums published by the server: " + withHash + "/" + filtered.size()
+                + (withHash < filtered.size()
+                ? " (the rest is verified by length and by the receipt recorded when it was downloaded)"
+                : ""));
 
         if (filtered.isEmpty()) {
             throw new IllegalStateException("The server returned an empty file list");
@@ -377,6 +466,11 @@ public final class CacheManager {
             throw new IllegalStateException("The server has no ." + suffix
                     + " texture database for this GPU");
         }
+
+        if (manifestCache != null) {
+            manifestCache.save(filtered);
+        }
+        offline = false;
 
         totalBytes = totalBytesOf(filtered);
         filesTotal = filtered.size();
@@ -417,6 +511,7 @@ public final class CacheManager {
         final boolean[] success = new boolean[]{false};
 
         DownloadEngine e = new DownloadEngine(root, callbacks);
+        e.setReceiptStore(receipts);
         engine = e;
         e.setListener(new DownloadEngine.Listener() {
             @Override
@@ -626,6 +721,9 @@ public final class CacheManager {
     }
 
     private static String describe(Throwable t) {
+        if (t == null) {
+            return "unknown error";
+        }
         String m = t.getMessage();
         if (m == null || m.trim().isEmpty()) {
             m = t.getClass().getSimpleName();

@@ -102,6 +102,9 @@ public class StorageGateActivity extends AppCompatActivity {
     /** True while CacheDownloadActivity is on screen. */
     private boolean installerOpen = false;
 
+    /** True once the game has been started; stops onResume from running the flow again. */
+    private boolean launching = false;
+
     /**
      * Lines recorded before storage access is granted. On Android 11+ nothing
      * may be written to /storage/emulated/0 until the user approves "All files
@@ -136,9 +139,10 @@ public class StorageGateActivity extends AppCompatActivity {
     @Override
     protected void onResume() {
         super.onResume();
-        if (installerOpen) {
-            // Coming back from the installer is handled in onActivityResult;
-            // re-running the gate here would stack a second dialog on top.
+        if (installerOpen || launching || dialogShowing) {
+            // Coming back from the installer is handled in onActivityResult.
+            // Re-running the flow here would reopen the installer in a loop, or
+            // stack a second dialog on top of the current one.
             return;
         }
         if (hasStorageAccess()) {
@@ -403,19 +407,22 @@ public class StorageGateActivity extends AppCompatActivity {
      * address 0x10 inside OS_FileRead). Offering a "Continue anyway" button
      * therefore only produced a guaranteed crash loop.
      */
+    /**
+     * Entry point of the launch flow.
+     *
+     * The cache is now <b>always</b> verified against the server manifest first,
+     * by the installer page: it compares every file's length and, where the
+     * manifest publishes one, its checksum, and re-downloads whatever is missing
+     * or altered. Starting the game straight away was a real bug - deleting one
+     * file by hand left every path this method used to check in place, so the
+     * game was launched with an incomplete cache and crashed during loading.
+     *
+     * A spot check of a handful of paths can only ever answer "the folder looks
+     * non-empty", which is not the same question as "the tree matches the server".
+     */
     private void startGameIfPossible() {
         prepareGameFolder();
-
-        String missing = describeMissingData();
-        if (missing != null) {
-            Log.w(TAG, "game data incomplete: " + missing);
-            logLine("game data INCOMPLETE: " + missing);
-            showMissingDataDialog(missing);
-            return;
-        }
-
-        logLine("game data OK");
-        launchGame();
+        openInstaller(describeMissingData());
     }
 
     private void showMissingDataDialog(final String missing) {
@@ -483,16 +490,20 @@ public class StorageGateActivity extends AppCompatActivity {
         dialogShowing = false;
 
         if (resultCode == RESULT_OK) {
-            // Belt and braces: even a fully verified manifest must satisfy the
-            // files libGTASA.so opens unconditionally at startup.
-            startGameIfPossible();
-        } else {
-            showMissingDataDialog(describeMissingData() == null
-                    ? "n/a" : describeMissingData());
+            // The installer only reports success after it compared the whole
+            // tree with the manifest and verified every file.
+            logLine("cache verified against the server manifest");
+            launchGame();
+            return;
         }
+
+        String missing = describeMissingData();
+        logLine("installer did not complete: " + (missing == null ? "unknown" : missing));
+        showMissingDataDialog(missing == null ? "verification failed" : missing);
     }
 
     private void launchGame() {
+        launching = true;
         ensureLogDir();
         logLine("launching " + GAME_ACTIVITY);
         try {

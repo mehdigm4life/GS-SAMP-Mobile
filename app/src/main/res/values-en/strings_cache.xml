@@ -31,7 +31,7 @@
 
     <string name="cache_verify_pending">Files not verified yet</string>
     <string name="cache_verify_running">Verifying every file…</string>
-    <string name="cache_verify_ok">All files verified</string>
+    <string name="cache_verify_ok">Verified: every file matches the server</string>
     <string name="cache_verify_problem">Missing or corrupted files</string>
 
     <string name="cache_log_title">Diagnostics</string>

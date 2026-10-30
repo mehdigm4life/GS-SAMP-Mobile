@@ -74,6 +74,8 @@ public class CacheDownloadActivity extends AppCompatActivity implements CacheMan
 
     private CacheManager manager;
     private File root;
+    /** App-private folder for the manifest copy and the file receipts. */
+    private File stateDir;
 
     private TextView tvPercent;
     private TextView tvSizeLeft;
@@ -122,12 +124,15 @@ public class CacheDownloadActivity extends AppCompatActivity implements CacheMan
             DiagLog.line("gate reported: " + missing);
         }
 
-        manager = new CacheManager(root, mainExecutor, gpuType);
+        stateDir = new File(getFilesDir(), "cache-state");
+        manager = new CacheManager(root, CacheManager.DEFAULT_CONFIG_URL, mainExecutor,
+                gpuType, stateDir);
         manager.setListener(this);
 
         // The manifest decides what is missing; this is only a fast hint that
         // the folder is not even present.
-        DiagLog.line("folder exists=" + root.isDirectory());
+        DiagLog.line("folder exists=" + root.isDirectory()
+                + " stateDir=" + stateDir.getAbsolutePath());
 
         if (isOnMobileData()) {
             // Inform, never block: the player already asked for the install by
