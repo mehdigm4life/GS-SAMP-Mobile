@@ -2,7 +2,7 @@
 buildscript {
     repositories {
         google()
-        jcenter()
+        mavenCentral()
         maven { url 'https://artifacts.applovin.com/android' }
     }
     dependencies {
@@ -18,12 +18,14 @@ buildscript {
 
 allprojects {
     repositories {
+        google()
         mavenCentral()
         maven { url 'https://jitpack.io' }
-        maven { url 'https://mint.splunk.com/gradle/'}
         maven { url "https://oss.sonatype.org/content/repositories/snapshots/" }
-        google()
-        jcenter()
+        // jcenter() and https://mint.splunk.com/gradle/ were removed: both are
+        // decommissioned. mint.splunk.com no longer resolves at all, which made
+        // Gradle abort dependency resolution (UnknownHostException) instead of
+        // moving on to the next repository.
     }
 }
 
