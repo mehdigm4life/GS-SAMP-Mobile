@@ -108,7 +108,7 @@ bool ImGuiWrapper::initialize()
 			font = io.Fonts->AddFontFromFileTTF(candidate.c_str(), fontSize, &fontCfg, ranges);
 			if (font != nullptr)
 			{
-				Log::addParameter("UI font loaded: %s", candidate.c_str());
+				FLog("UI font loaded: %s", candidate.c_str());
 				break;
 			}
 		}
@@ -118,7 +118,7 @@ bool ImGuiWrapper::initialize()
 	{
 		// Last resort: the ProggyClean font embedded in dear imgui. The overlay
 		// keeps working (Latin only) instead of aborting the whole game.
-		Log::addParameter("UI font not found, using the built-in font");
+		FLog("UI font not found, using the built-in font");
 		font = io.Fonts->AddFontDefault();
 	}
 
