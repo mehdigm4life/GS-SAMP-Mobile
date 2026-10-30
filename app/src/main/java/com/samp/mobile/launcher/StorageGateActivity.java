@@ -375,33 +375,55 @@ public class StorageGateActivity extends AppCompatActivity {
                 return;
             }
 
-            File settings = new File(samp, "settings.ini");
-            if (settings.exists()) {
+            seedAsset("settings.ini", new File(samp, "settings.ini"));
+
+            // libsamp loads SAMP/fonts/arial_bold.ttf while the overlay starts up
+            // and ImFontAtlas::AddFontFromFileTTF() aborts the process when the
+            // file is missing. The server does not publish a main.font, so the
+            // copy inside the APK seeds it once and the start no longer dies with
+            // SIGABRT in UI::initialize().
+            File fonts = new File(samp, "fonts");
+            if (!fonts.isDirectory() && !fonts.mkdirs() && !fonts.isDirectory()) {
+                logLine("could not create " + fonts);
                 return;
             }
+            seedAsset("SAMP/fonts/arial_bold.ttf", new File(fonts, "arial_bold.ttf"));
+        } catch (Throwable t) {
+            logLine("could not prepare game folder: " + t);
+        }
+    }
 
-            java.io.InputStream in = getAssets().open("settings.ini");
-            java.io.FileOutputStream out = new java.io.FileOutputStream(settings);
+    /** Copies an asset to [target] when the target is missing or empty. */
+    private void seedAsset(String assetName, File target) {
+        try {
+            if (target.isFile() && target.length() > 0) {
+                return;
+            }
+            java.io.InputStream in = getAssets().open(assetName);
             try {
-                byte[] buf = new byte[4096];
-                int n;
-                while ((n = in.read(buf)) > 0) {
-                    out.write(buf, 0, n);
-                }
-                out.flush();
-            } finally {
+                java.io.FileOutputStream out = new java.io.FileOutputStream(target);
                 try {
-                    out.close();
-                } catch (Exception ignored) {
+                    byte[] buf = new byte[8192];
+                    int n;
+                    while ((n = in.read(buf)) > 0) {
+                        out.write(buf, 0, n);
+                    }
+                    out.flush();
+                } finally {
+                    try {
+                        out.close();
+                    } catch (Exception ignored) {
+                    }
                 }
+            } finally {
                 try {
                     in.close();
                 } catch (Exception ignored) {
                 }
             }
-            logLine("seeded " + settings.getAbsolutePath());
+            logLine("seeded " + target.getAbsolutePath() + " (" + target.length() + " bytes)");
         } catch (Throwable t) {
-            logLine("could not prepare game folder: " + t);
+            logLine("could not seed " + assetName + ": " + t);
         }
     }
 
