@@ -1,0 +1,116 @@
+name: Build APK
+
+# Builds the app on GitHub's runners (they have unrestricted network access to
+# the Android SDK, Google Maven, Maven Central and the Gradle distribution,
+# none of which are reachable from a restricted sandbox) and uploads the
+# resulting APK as a downloadable artifact.
+on:
+  workflow_dispatch:
+  push:
+    branches: [ main ]
+  pull_request:
+    paths:
+      - 'app/**'
+      - 'build.gradle'
+      - 'settings.gradle'
+      - 'gradle/**'
+      - '.github/workflows/build-apk.yml'
+
+concurrency:
+  group: build-apk-${{ github.ref }}
+  cancel-in-progress: false
+
+permissions:
+  contents: read
+
+jobs:
+  build:
+    name: Assemble APK
+    runs-on: ubuntu-latest
+    # The native (JNI) build compiles ~1100 C/C++ sources twice (armv7 + arm64),
+    # so allow a generous budget.
+    timeout-minutes: 300
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 1
+
+      - name: Set up JDK 17
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+
+      - name: Set up Android SDK
+        uses: android-actions/setup-android@v3
+
+      - name: Install SDK / NDK / CMake packages
+        run: |
+          yes | sdkmanager --licenses > /dev/null 2>&1 || true
+          sdkmanager --install \
+            "platform-tools" \
+            "platforms;android-34" \
+            "build-tools;34.0.0" \
+            "ndk;26.2.11394342" \
+            "cmake;3.22.1"
+          echo "ANDROID_NDK_HOME=$ANDROID_HOME/ndk/26.2.11394342" >> "$GITHUB_ENV"
+
+      - name: Cache Gradle
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.gradle/caches
+            ~/.gradle/wrapper
+          key: gradle-${{ runner.os }}-${{ hashFiles('**/*.gradle', 'gradle/wrapper/gradle-wrapper.properties') }}
+          restore-keys: |
+            gradle-${{ runner.os }}-
+
+      - name: Show environment
+        run: |
+          java -version
+          echo "ANDROID_HOME=$ANDROID_HOME"
+          ls "$ANDROID_HOME/ndk"
+          grep distributionUrl gradle/wrapper/gradle-wrapper.properties
+
+      # `--continue` lets the debug APK still be produced when the release
+      # variant trips over Firebase Crashlytics native-symbol upload.
+      - name: Build (debug + release)
+        run: |
+          chmod +x gradlew
+          ./gradlew --no-daemon --stacktrace --continue assembleDebug assembleRelease
+        continue-on-error: true
+
+      - name: Collect build report
+        if: always()
+        run: |
+          {
+            echo '### Build artifacts'
+            echo ''
+            find app/build/outputs -name '*.apk' -o -name '*.aab' 2>/dev/null | while read -r f; do
+              printf -- '- `%s` (%s)\n' "$f" "$(du -h "$f" | cut -f1)"
+            done
+          } >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Upload APKs
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: samp-mobile-apk
+          path: |
+            app/build/outputs/apk/**/*.apk
+            app/build/outputs/mapping/**/mapping.txt
+          if-no-files-found: warn
+          retention-days: 30
+
+      - name: Upload build logs on failure
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: gradle-logs
+          path: |
+            **/build/reports/**
+            **/*.log
+          if-no-files-found: ignore
+          retention-days: 7
