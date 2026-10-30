@@ -207,11 +207,34 @@ jobs:
           set -o pipefail
           ./gradlew --no-daemon --stacktrace --warning-mode all :app:assembleDebug 2>&1 | tee build.log
 
-      # The raw Actions log is only reachable from the GitHub UI, so mirror the
-      # failure tail into an issue where any API client can read it.
-      # Hard gate: the whole native bootstrap lives in libsamp.so's JNI_OnLoad.
-      # If it is not exported ART never calls it, the game never initialises and
-      # the app quits right after launch. Never publish such an APK again.
+      # A crash line says "libsamp.so + 0x1b9bfc". Turning that offset into a
+      # function name needs the symbol table of the exact library that was
+      # built. The NDK's llvm-nm returned zero symbols for every candidate here,
+      # so tools/nearest_symbol.py reads the ELF symbol table directly. Every
+      # result is a workflow notice, which stays readable when the job log is
+      # not.
+      - name: Resolve native crash offsets
+        if: always()
+        run: |
+          set -uo pipefail
+          OFFSETS="0x1b9bfc 0x1cc444"
+
+          SO=""
+          for candidate in $(find app -name 'libsamp-unstripped.so' -type f 2>/dev/null); do
+            echo "candidate: $candidate ($(stat -c%s "$candidate") bytes)"
+            case "$candidate" in
+              *arm64-v8a*) SO="$candidate" ;;
+            esac
+          done
+          if [ -z "$SO" ]; then
+            echo "::notice::no unstripped libsamp.so in the build tree"
+            exit 0
+          fi
+          echo "::notice::symbol map from $(basename "$(dirname "$SO")")/$(basename "$SO")"
+
+          python3 tools/nearest_symbol.py "$SO" $OFFSETS 2>&1 | while IFS= read -r line; do
+            echo "::notice::$line"
+          done
       - name: Verify native bootstrap (JNI_OnLoad exported)
         run: |
           set -euo pipefail
