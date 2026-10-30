@@ -4,20 +4,46 @@ plugins {
     id 'com.google.firebase.crashlytics'
 }
 
+// ---------------------------------------------------------------------------
+// Signing keystore resolution
+//
+// The original project pointed both build types at "../../keys/new.jks", a
+// keystore that lives OUTSIDE this repository and was never committed. On a
+// fresh clone that file does not exist, so Gradle refused to produce an APK --
+// even for `debug`, because the debug build type was also wired to the release
+// signing config.
+//
+// Resolution order (unchanged behaviour when the keystore is present):
+//   1. ../../keys/new.jks  -> used as before, with the original credentials
+//   2. otherwise           -> AGP's standard debug keystore
+//                             (~/.android/debug.keystore, auto-generated on
+//                             first build) so the project builds out of the box
+// ---------------------------------------------------------------------------
+def externalKeystore = file("../../keys/new.jks")
+def useExternalKeystore = externalKeystore.exists()
+
+if (!useExternalKeystore) {
+    logger.lifecycle("Signing: ${externalKeystore} not found - falling back to the Android debug keystore.")
+}
+
 android {
     signingConfigs {
-        debug {
-            storeFile file("../../keys/new.jks")
-            storePassword "123123"
-            keyAlias "key0"
-            keyPassword "123123"
+        if (useExternalKeystore) {
+            debug {
+                storeFile externalKeystore
+                storePassword "123123"
+                keyAlias "key0"
+                keyPassword "123123"
+            }
+            release {
+                storeFile externalKeystore
+                storePassword "123123"
+                keyAlias "key0"
+                keyPassword "123123"
+            }
         }
-        release {
-            storeFile file("../../keys/new.jks")
-            storePassword "123123"
-            keyAlias "key0"
-            keyPassword "123123"
-        }
+        // When the external keystore is absent, no signing config is declared
+        // here so that AGP keeps its auto-generated "debug" signing config.
     }
     compileSdk 34
     allprojects {repositories {maven { url 'https://maven.aliyun.com/repository/jcenter' }}}
@@ -63,7 +89,7 @@ android {
             minifyEnabled false
 
             proguardFiles getDefaultProguardFile('proguard-android-optimize.txt'), 'proguard-rules.pro'
-            signingConfig signingConfigs.release
+            signingConfig(useExternalKeystore ? signingConfigs.release : signingConfigs.debug)
         }
         release {
             firebaseCrashlytics {
@@ -79,7 +105,7 @@ android {
             jniDebuggable false
             minifyEnabled false
             proguardFiles getDefaultProguardFile('proguard-android-optimize.txt'), 'proguard-rules.pro'
-            signingConfig signingConfigs.release
+            signingConfig(useExternalKeystore ? signingConfigs.release : signingConfigs.debug)
         }
         all{
             multiDexEnabled true
