@@ -32,6 +32,7 @@ import java.util.List;
 
 import com.samp.mobile.R;
 import com.samp.mobile.cache.CacheDownloadActivity;
+import com.samp.mobile.cache.GpuDetector;
 
 /**
  * Launcher entry point that guarantees the game can reach its data before the
@@ -282,7 +283,58 @@ public class StorageGateActivity extends AppCompatActivity {
             appendEntry(missing, "TEXT/AMERICAN.GXT");
         }
 
+        // libGTASA opens texdb/<db>/<db>.<format>.tmb as soon as RenderWare
+        // initialises, where <format> follows its own GL-extension check. A
+        // cache built for another GPU family therefore gets all the way to the
+        // loading screen and then dies in TextureDatabaseRuntime::SortEntries
+        // (SIGSEGV, fault address 0x6f1). Checking the exact file turns that
+        // guaranteed crash into the "install files" dialog.
+        String gpuMissing = describeMissingTextureDb(root);
+        if (gpuMissing != null) {
+            appendEntry(missing, gpuMissing);
+        }
+
         return missing.length() == 0 ? null : missing.toString();
+    }
+
+    /**
+     * @return null when the texture database the game will open exists,
+     *         otherwise the path that is missing
+     */
+    private String describeMissingTextureDb(File root) {
+        File texdb = new File(root, "texdb");
+        if (!texdb.isDirectory()) {
+            return "texdb/";
+        }
+
+        String suffix;
+        try {
+            suffix = GpuDetector.formatSuffix();
+        } catch (Throwable t) {
+            logLine("gpu detection failed: " + t);
+            suffix = null;
+        }
+
+        File mobile = new File(texdb, "mobile");
+        if (suffix != null) {
+            File index = new File(mobile, "mobile." + suffix + ".tmb");
+            if (!index.exists()) {
+                logLine("texture database for this GPU is missing: "
+                        + index.getAbsolutePath()
+                        + " renderer=[" + GpuDetector.lastRenderer() + "]");
+                return "texdb/mobile/mobile." + suffix + ".tmb";
+            }
+            return null;
+        }
+
+        // No GL information: at least require one index of any family.
+        String[] families = {"dxt", "pvr", "etc"};
+        for (String family : families) {
+            if (new File(mobile, "mobile." + family + ".tmb").exists()) {
+                return null;
+            }
+        }
+        return "texdb/mobile/mobile.*.tmb";
     }
 
     private void appendIfMissing(File root, StringBuilder missing, String entry) {

@@ -96,26 +96,47 @@ public class CacheManagerTest {
     }
 
     /**
-     * Three usable files plus one texture variant that must be skipped on a DXT
-     * device.
+     * A manifest shaped like the real one: three shared files plus the texture
+     * database in all three GPU flavours. The installer must keep only the
+     * family this device renders and must never fetch the other two.
      */
     private void publishManifest() throws IOException {
         byte[] a = payload(2048, (byte) 1);
         byte[] b = payload(3072, (byte) 2);
         byte[] c = payload(1024, (byte) 3);
-        byte[] etc = payload(4096, (byte) 4);
+
+        byte[] dxt = payload(4096, (byte) 4);
+        byte[] dxtTmb = payload(512, (byte) 5);
+        byte[] pvr = payload(4096, (byte) 6);
+        byte[] pvrTmb = payload(512, (byte) 7);
+        byte[] etc = payload(4096, (byte) 8);
+        byte[] etcTmb = payload(512, (byte) 9);
+        byte[] uncTmb = payload(256, (byte) 10);
 
         bodies.clear();
         bodies.put("/files/data/a.dat", a);
         bodies.put("/files/data/b.dat", b);
         bodies.put("/files/models/c.dat", c);
-        bodies.put("/files/texdb/x.etc.dat", etc);
+
+        bodies.put("/files/texdb/mobile/mobile.dxt", dxt);
+        bodies.put("/files/texdb/mobile/mobile.dxt.tmb", dxtTmb);
+        bodies.put("/files/texdb/mobile/mobile.pvr", pvr);
+        bodies.put("/files/texdb/mobile/mobile.pvr.tmb", pvrTmb);
+        bodies.put("/files/texdb/mobile/mobile.etc", etc);
+        bodies.put("/files/texdb/mobile/mobile.etc.tmb", etcTmb);
+        bodies.put("/files/texdb/mobile/mobile.unc.tmb", uncTmb);
 
         String list = "{\"files\":["
                 + entry("data/a.dat", a) + ","
                 + entry("data/b.dat", b) + ","
                 + entry("models/c.dat", c) + ","
-                + entry("texdb/x.etc.dat", etc)
+                + entry("texdb/mobile/mobile.dxt", dxt) + ","
+                + entry("texdb/mobile/mobile.dxt.tmb", dxtTmb) + ","
+                + entry("texdb/mobile/mobile.pvr", pvr) + ","
+                + entry("texdb/mobile/mobile.pvr.tmb", pvrTmb) + ","
+                + entry("texdb/mobile/mobile.etc", etc) + ","
+                + entry("texdb/mobile/mobile.etc.tmb", etcTmb) + ","
+                + entry("texdb/mobile/mobile.unc.tmb", uncTmb)
                 + "]}";
         bodies.put("/files.json", list.getBytes("UTF-8"));
     }
@@ -171,7 +192,7 @@ public class CacheManagerTest {
         corrupt[0] ^= 0xFF;
         writeFile(new File(root, "data/b.dat"), corrupt);
 
-        // models/c.dat is missing entirely.
+        // models/c.dat is missing entirely, and so are the DXT texture files.
 
         CacheManager manager = new CacheManager(root, configUrl(), null, GpuDetector.DXT);
         manager.start();
@@ -184,9 +205,19 @@ public class CacheManagerTest {
         assertArrayEqualsFile(bodies.get("/files/data/b.dat"), new File(root, "data/b.dat"));
         assertArrayEqualsFile(bodies.get("/files/models/c.dat"), new File(root, "models/c.dat"));
 
-        // The texture pack for the other GPU families must not be downloaded.
+        // The DXT family is the one this device renders, so it had to be fetched.
+        assertArrayEqualsFile(bodies.get("/files/texdb/mobile/mobile.dxt"),
+                new File(root, "texdb/mobile/mobile.dxt"));
+        assertArrayEqualsFile(bodies.get("/files/texdb/mobile/mobile.dxt.tmb"),
+                new File(root, "texdb/mobile/mobile.dxt.tmb"));
+
+        // The PVR and ETC copies exist on the server but must not be downloaded.
         assertFalse("wrong GPU texture pack was downloaded",
-                new File(root, "texdb/x.etc.dat").exists());
+                new File(root, "texdb/mobile/mobile.pvr").exists());
+        assertFalse("wrong GPU texture pack was downloaded",
+                new File(root, "texdb/mobile/mobile.etc").exists());
+        assertEquals(0, server.hits("/files/texdb/mobile/mobile.pvr"));
+        assertEquals(0, server.hits("/files/texdb/mobile/mobile.etc"));
 
         // The intact file was never fetched; the broken two were, once each.
         assertEquals("intact file must not be downloaded again",
@@ -201,9 +232,17 @@ public class CacheManagerTest {
     public void secondRunDownloadsNothingWhenCacheIsIntact() throws Exception {
         publishManifest();
 
-        writeFile(new File(root, "data/a.dat"), bodies.get("/files/data/a.dat"));
-        writeFile(new File(root, "data/b.dat"), bodies.get("/files/data/b.dat"));
-        writeFile(new File(root, "models/c.dat"), bodies.get("/files/models/c.dat"));
+        // Everything the DXT device needs is already on disk.
+        for (Map.Entry<String, byte[]> e : bodies.entrySet()) {
+            if (e.getKey().startsWith("/files/")) {
+                String path = e.getKey().substring("/files/".length());
+                if (path.endsWith(".pvr") || path.endsWith(".pvr.tmb")
+                        || path.endsWith(".etc") || path.endsWith(".etc.tmb")) {
+                    continue;  // another GPU family: not part of this cache
+                }
+                writeFile(new File(root, path), e.getValue());
+            }
+        }
 
         CacheManager manager = new CacheManager(root, configUrl(), null, GpuDetector.DXT);
         manager.start();
@@ -212,7 +251,10 @@ public class CacheManagerTest {
         assertEquals(0, server.hits("/files/data/a.dat"));
         assertEquals(0, server.hits("/files/data/b.dat"));
         assertEquals(0, server.hits("/files/models/c.dat"));
-        assertEquals(0, server.hits("/files/texdb/x.etc.dat"));
+        assertEquals(0, server.hits("/files/texdb/mobile/mobile.dxt"));
+        assertEquals(0, server.hits("/files/texdb/mobile/mobile.dxt.tmb"));
+        assertEquals(0, server.hits("/files/texdb/mobile/mobile.pvr"));
+        assertEquals(0, server.hits("/files/texdb/mobile/mobile.etc"));
     }
 
     /**
