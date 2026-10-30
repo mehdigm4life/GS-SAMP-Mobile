@@ -82,6 +82,10 @@ public class StorageGateActivity extends AppCompatActivity {
 
     private static final String GAME_ACTIVITY = "com.samp.mobile.game.SAMP";
 
+    /** Game cache download, as documented in the project README. */
+    private static final String CACHE_DOWNLOAD_URL =
+            "https://drive.google.com/file/d/1JW2RscmpHNz8g51phxjjKkubTV2ZDEmD/view?usp=drivesdk";
+
     private static final int REQUEST_LEGACY_STORAGE = 1001;
 
     /** Guards against showing the dialog again on every onResume. */
@@ -239,8 +243,9 @@ public class StorageGateActivity extends AppCompatActivity {
      * Returns a human readable summary of what is missing under GAME_ROOT, or
      * null when the cache looks usable.
      *
-     * These are exactly the entries the native side needs first: "data" holds
-     * the .dat file definitions and "SAMP" holds main.scm plus settings.ini.
+     * The list mirrors what the prebuilt libGTASA.so opens during startup; the
+     * exact file that produced the last SIGSEGV was TEXT/AMERICAN.GXT, so it is
+     * checked explicitly.
      */
     private String describeMissingData() {
         File root = new File(GAME_ROOT);
@@ -249,54 +254,151 @@ public class StorageGateActivity extends AppCompatActivity {
         }
 
         StringBuilder missing = new StringBuilder();
-        String[] required = {"data", "SAMP"};
-        for (String entry : required) {
-            if (!new File(root, entry).exists()) {
-                if (missing.length() > 0) {
-                    missing.append(", ");
-                }
-                missing.append(entry).append('/');
-            }
+        appendIfMissing(root, missing, "data");
+        appendIfMissing(root, missing, "models");
+        appendIfMissing(root, missing, "SAMP");
+        appendIfMissing(root, missing, "TEXT");
+
+        // The game reads the GXT at startup; a missing one is a guaranteed
+        // nullptr dereference inside OS_FileRead(), so name it precisely.
+        File text = new File(root, "TEXT");
+        if (text.isDirectory() && !new File(text, "AMERICAN.GXT").exists()
+                && !new File(text, "american.gxt").exists()) {
+            appendEntry(missing, "TEXT/AMERICAN.GXT");
         }
+
         return missing.length() == 0 ? null : missing.toString();
     }
 
+    private void appendIfMissing(File root, StringBuilder missing, String entry) {
+        if (!new File(root, entry).exists()) {
+            appendEntry(missing, entry + "/");
+        }
+    }
+
+    private void appendEntry(StringBuilder missing, String entry) {
+        if (missing.length() > 0) {
+            missing.append(", ");
+        }
+        missing.append(entry);
+    }
+
+    /**
+     * Creates the folder skeleton and seeds SAMP/settings.ini from the copy that
+     * ships inside the APK, so the player always has a correctly formatted file
+     * to edit. Called before the "missing data" check so an empty device ends up
+     * with the right tree even when the cache is still absent.
+     */
+    private void prepareGameFolder() {
+        try {
+            File root = new File(GAME_ROOT);
+            File samp = new File(root, "SAMP");
+            if (!samp.isDirectory() && !samp.mkdirs() && !samp.isDirectory()) {
+                logLine("could not create " + samp);
+                return;
+            }
+
+            File settings = new File(samp, "settings.ini");
+            if (settings.exists()) {
+                return;
+            }
+
+            java.io.InputStream in = getAssets().open("settings.ini");
+            java.io.FileOutputStream out = new java.io.FileOutputStream(settings);
+            try {
+                byte[] buf = new byte[4096];
+                int n;
+                while ((n = in.read(buf)) > 0) {
+                    out.write(buf, 0, n);
+                }
+                out.flush();
+            } finally {
+                try {
+                    out.close();
+                } catch (Exception ignored) {
+                }
+                try {
+                    in.close();
+                } catch (Exception ignored) {
+                }
+            }
+            logLine("seeded " + settings.getAbsolutePath());
+        } catch (Throwable t) {
+            logLine("could not prepare game folder: " + t);
+        }
+    }
+
+    /**
+     * Refuses to start the game while the cache is missing.
+     *
+     * Launching anyway is not "just a warning": libGTASA.so dereferences the
+     * nullptr returned by its file-open hook and dies with SIGSEGV (fault
+     * address 0x10 inside OS_FileRead). Offering a "Continue anyway" button
+     * therefore only produced a guaranteed crash loop.
+     */
     private void startGameIfPossible() {
+        prepareGameFolder();
+
         String missing = describeMissingData();
         if (missing != null) {
             Log.w(TAG, "game data incomplete: " + missing);
             logLine("game data INCOMPLETE: " + missing);
-            new AlertDialog.Builder(this)
-                    .setTitle("Game data not found")
-                    .setMessage("Storage access is granted, but the game cache is not in place yet.\n\n"
-                            + "Missing: " + missing + "\n\n"
-                            + "The cache must be extracted to:\n"
-                            + GAME_ROOT + "/\n\n"
-                            + "It has to contain at least these entries:\n"
-                            + "  data/\n"
-                            + "  SAMP/\n"
-                            + "  models/\n\n"
-                            + "The client now reads its data from this folder instead of\n"
-                            + "Android/data/com.samp.mobile/files/, which Android 11+ hides from\n"
-                            + "file managers.\n\n"
-                            + "Diagnostics are written to:\n" + LOG_DIR + "/" + LOG_FILE)
-                    .setCancelable(false)
-                    .setPositiveButton("Continue anyway", new DialogInterface.OnClickListener() {
-                        @Override
-                        public void onClick(DialogInterface d, int which) {
-                            launchGame();
-                        }
-                    })
-                    .setNegativeButton("Exit", new DialogInterface.OnClickListener() {
-                        @Override
-                        public void onClick(DialogInterface d, int which) {
-                            finish();
-                        }
-                    })
-                    .show();
+            showMissingDataDialog(missing);
             return;
         }
+
+        logLine("game data OK");
         launchGame();
+    }
+
+    private void showMissingDataDialog(String missing) {
+        dialogShowing = true;
+
+        new AlertDialog.Builder(this)
+                .setTitle("Game data not found")
+                .setMessage("Storage access is granted, but the game cache is missing.\n\n"
+                        + "Missing: " + missing + "\n\n"
+                        + "The cache must be extracted to:\n"
+                        + GAME_ROOT + "/\n\n"
+                        + "It has to contain at least:\n"
+                        + "  data/\n"
+                        + "  models/\n"
+                        + "  TEXT/AMERICAN.GXT\n"
+                        + "  SAMP/\n\n"
+                        + "The game cannot start without these files - it crashes inside\n"
+                        + "libGTASA.so as soon as it tries to read them.\n\n"
+                        + "Diagnostics: " + LOG_DIR + "/" + LOG_FILE)
+                .setCancelable(false)
+                .setPositiveButton("Download cache", new DialogInterface.OnClickListener() {
+                    @Override
+                    public void onClick(DialogInterface d, int which) {
+                        dialogShowing = false;
+                        openUrl(CACHE_DOWNLOAD_URL);
+                    }
+                })
+                .setNeutralButton("Re-check", new DialogInterface.OnClickListener() {
+                    @Override
+                    public void onClick(DialogInterface d, int which) {
+                        dialogShowing = false;
+                        startGameIfPossible();
+                    }
+                })
+                .setNegativeButton("Exit", new DialogInterface.OnClickListener() {
+                    @Override
+                    public void onClick(DialogInterface d, int which) {
+                        finish();
+                    }
+                })
+                .show();
+    }
+
+    private void openUrl(String url) {
+        try {
+            startActivity(new Intent(Intent.ACTION_VIEW, Uri.parse(url)));
+        } catch (Throwable t) {
+            logLine("cannot open " + url + ": " + t);
+            Toast.makeText(this, "Open this link manually:\n" + url, Toast.LENGTH_LONG).show();
+        }
     }
 
     private void launchGame() {

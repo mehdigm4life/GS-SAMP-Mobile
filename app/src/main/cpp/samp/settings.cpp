@@ -13,6 +13,34 @@
 extern CGame *pGame;
 
 /**
+ * mkdir -p. mkdir() only creates the final component, so the full path has to
+ * be walked from the root. Failures are ignored: callers only care whether the
+ * target file can be opened afterwards.
+ */
+static void CreateParentDirectories(const char* filePath)
+{
+	if (filePath == nullptr || *filePath == '\0') return;
+
+	std::string path(filePath);
+	size_t slash = path.find_last_of('/');
+	if (slash == std::string::npos) return;
+
+	std::string folder = path.substr(0, slash);
+
+	for (size_t i = 1; i <= folder.size(); ++i)
+	{
+		if (i == folder.size() || folder[i] == '/')
+		{
+			std::string partial = folder.substr(0, i);
+			if (!partial.empty())
+			{
+				mkdir(partial.c_str(), 0770);
+			}
+		}
+	}
+}
+
+/**
  * Creates <storage>/SAMP/settings.ini with documented defaults when it does not
  * exist yet, so the player has something to edit instead of a file that only
  * ever appears if they guess the format.
@@ -33,14 +61,12 @@ static void WriteDefaultSettingsFile(const char* path)
 		return;
 	}
 
-	// Make sure <storage>/SAMP exists.
-	std::string dir(path);
-	size_t slash = dir.find_last_of('/');
-	if (slash != std::string::npos)
-	{
-		std::string folder = dir.substr(0, slash);
-		mkdir(folder.c_str(), 0770);
-	}
+	// Make sure <storage>/SAMP exists. mkdir() only creates the last path
+	// component, so on a device where /storage/emulated/0/GTA does not exist
+	// yet this used to fail and no settings file was ever written (the log
+	// showed "Could not create .../GTA/SAMP/settings.ini"). CreateParents()
+	// walks the path instead.
+	CreateParentDirectories(path);
 
 	FILE* fp = fopen(path, "w");
 	if (fp == nullptr)
