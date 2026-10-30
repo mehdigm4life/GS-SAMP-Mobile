@@ -1,6 +1,10 @@
 #include <jni.h>
 #include <pthread.h>
 #include <syscall.h>
+#include <sys/stat.h>
+#include <sys/time.h>
+#include <time.h>
+#include <cstdio>
 
 #include "main.h"
 #include "game/game.h"
@@ -35,6 +39,46 @@ JavaVM* javaVM;
 // location keeps those paths valid from the very first instruction; the hook
 // still overrides this pointer once the game root is known.
 char* g_pszStorage = (char*)"/storage/emulated/0/GTA/";
+
+// ---------------------------------------------------------------------------
+// Diagnostic log location.
+//
+// This is intentionally NOT derived from g_pszStorage:
+//   * g_pszStorage is replaced by libGTASA's own StorageRootBuffer and is used
+//     to build every game asset path (SAMP/main.scm, data/*.dat, ...), so it
+//     must keep pointing at the game cache.
+//   * Logs must live somewhere the user can actually open. Android/data/* is
+//     hidden from file managers, MTP and USB on Android 11+.
+//
+// Everything therefore goes to a plain folder on the shared storage that any
+// file manager can browse. StorageGateActivity creates it and writes its
+// lifecycle/crash lines to the same file.
+static const char* g_pszLogDir = "/storage/emulated/0/GS-SAMP";
+
+// Opens <g_pszLogDir>/<name> for appending, creating the folder when needed.
+// Returns nullptr while the app has no "All files access" yet; every caller
+// treats that as "logging unavailable" and simply retries on the next call.
+static FILE* OpenLogFile(const char* name)
+{
+	mkdir(g_pszLogDir, 0770);
+
+	char path[0xFF];
+	snprintf(path, sizeof(path), "%s/%s", g_pszLogDir, name);
+	return fopen(path, "a");
+}
+
+// "HH:MM:SS.mmm" prefix so the Java and native lines in the same file can be
+// ordered against each other.
+static void LogTimestamp(char* out, size_t outSize)
+{
+	struct timeval tv;
+	gettimeofday(&tv, nullptr);
+	struct tm tmv;
+	time_t sec = tv.tv_sec;
+	localtime_r(&sec, &tmv);
+	snprintf(out, outSize, "%02d:%02d:%02d.%03d",
+	         tmv.tm_hour, tmv.tm_min, tmv.tm_sec, (int)(tv.tv_usec / 1000));
+}
 
 UI* pUI = nullptr;
 CGame *pGame = nullptr;
@@ -464,15 +508,15 @@ uint32_t GetTickCount()
 void FLog(const char* fmt, ...)
 {
 	char buffer[0xFF];
+
+	// Function-local static: while the storage permission is still missing
+	// OpenLogFile() returns nullptr, so the open is retried on every call
+	// instead of being given up on permanently.
 	static FILE* flLog = nullptr;
-	const char* pszStorage = g_pszStorage;
 
-
-	if (flLog == nullptr && pszStorage != nullptr)
+	if (flLog == nullptr)
 	{
-		sprintf(buffer, "%s/samp_log.txt", pszStorage);
-		//LOGI("buffer: %s", buffer);
-		flLog = fopen(buffer, "a");
+		flLog = OpenLogFile("logcat.txt");
 	}
 
 	memset(buffer, 0, sizeof(buffer));
@@ -486,7 +530,10 @@ void FLog(const char* fmt, ...)
 	firebase::crashlytics::Log(buffer);
 
 	if (flLog == nullptr) return;
-	fprintf(flLog, "%s\n", buffer);
+
+	char ts[24];
+	LogTimestamp(ts, sizeof(ts));
+	fprintf(flLog, "[%s] %s\n", ts, buffer);
 	fflush(flLog);
 
 	return;
@@ -496,13 +543,10 @@ void ChatLog(const char* fmt, ...)
 {
 	char buffer[0xFF];
 	static FILE* flLog = nullptr;
-	const char* pszStorage = g_pszStorage;
 
-
-	if (flLog == nullptr && pszStorage != nullptr)
+	if (flLog == nullptr)
 	{
-		sprintf(buffer, "%s/chat_log.txt", pszStorage);
-		flLog = fopen(buffer, "a");
+		flLog = OpenLogFile("chat_log.txt");
 	}
 
 	memset(buffer, 0, sizeof(buffer));
@@ -513,7 +557,10 @@ void ChatLog(const char* fmt, ...)
 	va_end(arg);
 
 	if (flLog == nullptr) return;
-	fprintf(flLog, "%s\n", buffer);
+
+	char ts[24];
+	LogTimestamp(ts, sizeof(ts));
+	fprintf(flLog, "[%s] %s\n", ts, buffer);
 	fflush(flLog);
 
 	return;
