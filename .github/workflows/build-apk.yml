@@ -223,7 +223,7 @@ jobs:
       # read it: an issue with the candidate libraries, the nearest symbol, the
       # source line and the disassembly around each offset.
       - name: Publish the native symbol map as an issue
-        if: github.event_name == 'workflow_dispatch' && inputs.dump_symbols
+        if: contains(github.event.head_commit.message, '[dump-symbols]') || (github.event_name == 'workflow_dispatch' && inputs.dump_symbols)
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           OFFSETS: ${{ inputs.symbol_offsets }}
