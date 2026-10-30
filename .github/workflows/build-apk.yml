@@ -22,6 +22,7 @@ concurrency:
 
 permissions:
   contents: read
+  issues: write
 
 jobs:
   build:
@@ -111,7 +112,27 @@ jobs:
       - name: Build debug APK
         run: |
           chmod +x gradlew
-          ./gradlew --no-daemon --stacktrace :app:assembleDebug
+          set -o pipefail
+          ./gradlew --no-daemon --stacktrace --warning-mode all :app:assembleDebug 2>&1 | tee build.log
+
+      # The raw Actions log is only reachable from the GitHub UI, so mirror the
+      # failure tail into an issue where any API client can read it.
+      - name: Publish failure log as an issue
+        if: failure()
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          if [ ! -f build.log ]; then echo "build.log missing"; exit 0; fi
+          {
+            echo 'Gradle build failed. Tail of the log:'
+            echo ''
+            echo '```'
+            tail -c 30000 build.log
+            echo '```'
+          } > /tmp/body.md
+          gh issue create --repo "$GITHUB_REPOSITORY" \
+            --title "Build failure (run ${{ github.run_number }})" \
+            --body-file /tmp/body.md || true
 
       - name: Collect build report
         if: always()
