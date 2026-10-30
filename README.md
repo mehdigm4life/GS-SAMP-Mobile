@@ -22,21 +22,40 @@ Modern **SA-MP 2.10** client for **Grand Theft Auto: San Andreas (Android)**.
 
 ## Installation
 
-1. Install the APK.
-
-2. Download the game cache:
-
-[**Download GTA game cache**](https://drive.google.com/file/d/1JW2RscmpHNz8g51phxjjKkubTV2ZDEmD/view?usp=drivesdk)
-
-[**Download CRMP game cache**](https://drive.google.com/file/d/13W2zAgsMAFAvTTS7YVGtgSgyv2BPYbLk/view?usp=drivesdk)
-
-3. Extract the cache to:
+1. Install the APK and open it.
+2. Grant the "All files access" permission when the app asks for it.
+3. Tap **Install files**: the app downloads the game cache itself, straight into
+   `/storage/emulated/0/GTA/`. No browser and no manual unzipping are involved.
 
 ```text
-/storage/emulated/0/GTA/
+client_config.json  ->  file list  ->  filter for this device's GPU
+                    ->  verify what is on disk (size + checksum)
+                    ->  download only the files that are missing or corrupt
+                    ->  verify again, repeat until the tree matches the server
 ```
 
-4. Launch the game.
+4. The game only starts after every file has been verified. If a download is
+   interrupted, the next run continues from the bytes already on disk (HTTP
+   `Range`), so nothing is downloaded twice.
+5. If the game data is later damaged or removed, the same page offers an update
+   / repair run that fetches only what no longer matches.
+
+### Cache downloader
+
+| Feature | Behaviour |
+| --- | --- |
+| Internal download | Files are streamed by the app itself; the browser is never opened |
+| Pause / Resume | The partial file is kept as `<name>.part` and resumed with an HTTP Range request |
+| Cancel | Stops the transfer and removes the partial file |
+| Verification | Every file is checked against the server manifest (size, plus MD5/SHA1/CRC32 when published) |
+| Repair | Only missing or corrupted files are fetched, then the whole tree is verified again |
+| Diagnostics | Progress and failures are appended to `/storage/emulated/0/GS-SAMP/logcat.txt` |
+| Unit tested | Resume, pause, cancel and checksum handling are covered by JVM tests against a local HTTP server |
+
+The manifest is read from the project's own endpoint
+(`https://samp-mobile.shop/client_config.json`), which points at the file list.
+Texture packs are filtered per GPU family (`.dxt.` / `.etc.` / `.pvr.`) so a
+device downloads only the variant it can render.
 
 ## Building
 

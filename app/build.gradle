@@ -55,8 +55,8 @@ android {
         targetSdk 34
         // Bumped so builds install over the previously published APKs instead
         // of being rejected as a downgrade.
-        versionCode 107
-        versionName "0.8.2.3"
+        versionCode 108
+        versionName "0.8.2.4"
 
         multiDexEnabled true
 
@@ -136,6 +136,10 @@ dependencies {
     implementation 'androidx.navigation:navigation-fragment:2.3.5'
     implementation 'androidx.navigation:navigation-ui:2.3.5'
     testImplementation 'junit:junit:4.13.2'
+    // The manifest parser uses org.json, which is only a stub in the Android
+    // unit-test runtime; this supplies the real implementation so the parsing
+    // rules can be tested on the JVM exactly as they ship.
+    testImplementation 'org.json:json:20231013'
     androidTestImplementation 'androidx.test.ext:junit:1.1.3'
     androidTestImplementation 'androidx.test.espresso:espresso-core:3.4.0'
 

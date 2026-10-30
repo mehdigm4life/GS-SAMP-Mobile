@@ -94,6 +94,20 @@
             </intent-filter>
         </activity>
 
+    <!--
+        In-app cache installer: downloads the game data straight into
+        /storage/emulated/0/GTA and verifies every file before the game is
+        allowed to start. Kept in the cache package so it can share the
+        verifier and the download engine with the unit tests.
+    -->
+    <activity
+        android:name="com.samp.mobile.cache.CacheDownloadActivity"
+        android:configChanges="keyboard|keyboardHidden|orientation|screenSize|uiMode"
+        android:exported="false"
+        android:label="@string/cache_title"
+        android:launchMode="singleTop"
+        android:theme="@style/Theme.SAMPLauncher.CacheInstaller" />
+
     <activity
         android:name=".launcher.MainActivity"
         android:screenOrientation="portrait"
