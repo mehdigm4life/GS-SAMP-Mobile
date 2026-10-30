@@ -27,9 +27,12 @@ jobs:
   build:
     name: Assemble APK
     runs-on: ubuntu-latest
-    # The native (JNI) build compiles ~1100 C/C++ sources twice (armv7 + arm64),
-    # so allow a generous budget.
+    # The native (JNI) build compiles ~1100 C/C++ sources for two ABIs.
     timeout-minutes: 300
+
+    env:
+      # Bump the Gradle heap above the 2 GB set in gradle.properties.
+      GRADLE_OPTS: -Dorg.gradle.jvmargs=-Xmx4g -Dfile.encoding=UTF-8
 
     steps:
       - name: Checkout
@@ -43,19 +46,48 @@ jobs:
           distribution: temurin
           java-version: '17'
 
-      - name: Set up Android SDK
-        uses: android-actions/setup-android@v3
-
+      # The ubuntu-latest image already ships a complete Android SDK, so we do
+      # NOT use android-actions/setup-android (it fails on these runners).
+      # We only add the exact NDK / CMake / platform versions this project asks
+      # for, using the sdkmanager that ships with the image.
       - name: Install SDK / NDK / CMake packages
         run: |
-          yes | sdkmanager --licenses > /dev/null 2>&1 || true
-          sdkmanager --install \
-            "platform-tools" \
+          set -euo pipefail
+
+          if [ -z "${ANDROID_HOME:-}" ]; then
+            export ANDROID_HOME=/usr/local/lib/android/sdk
+            echo "ANDROID_HOME=$ANDROID_HOME" >> "$GITHUB_ENV"
+          fi
+          export ANDROID_SDK_ROOT="$ANDROID_HOME"
+          echo "ANDROID_SDK_ROOT=$ANDROID_SDK_ROOT" >> "$GITHUB_ENV"
+
+          echo "SDK root: $ANDROID_HOME"
+          ls "$ANDROID_HOME"
+
+          SDKMANAGER="$(command -v sdkmanager || true)"
+          if [ -z "$SDKMANAGER" ]; then
+            for candidate in \
+              "$ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager" \
+              "$ANDROID_HOME/cmdline-tools/bin/sdkmanager" \
+              "$ANDROID_HOME/tools/bin/sdkmanager"; do
+              if [ -x "$candidate" ]; then SDKMANAGER="$candidate"; break; fi
+            done
+          fi
+          if [ -z "$SDKMANAGER" ]; then
+            echo "::error::sdkmanager not found"; exit 1
+          fi
+          echo "sdkmanager: $SDKMANAGER"
+
+          yes | "$SDKMANAGER" --licenses > /dev/null 2>&1 || true
+
+          "$SDKMANAGER" --install \
             "platforms;android-34" \
             "build-tools;34.0.0" \
             "ndk;26.2.11394342" \
             "cmake;3.22.1"
+
           echo "ANDROID_NDK_HOME=$ANDROID_HOME/ndk/26.2.11394342" >> "$GITHUB_ENV"
+          echo "ANDROID_NDK_ROOT=$ANDROID_HOME/ndk/26.2.11394342" >> "$GITHUB_ENV"
 
       - name: Cache Gradle
         uses: actions/cache@v4
@@ -71,16 +103,15 @@ jobs:
         run: |
           java -version
           echo "ANDROID_HOME=$ANDROID_HOME"
-          ls "$ANDROID_HOME/ndk"
+          echo "ANDROID_NDK_HOME=$ANDROID_NDK_HOME"
+          ls "$ANDROID_HOME/ndk" || true
+          ls "$ANDROID_HOME/platforms" || true
           grep distributionUrl gradle/wrapper/gradle-wrapper.properties
 
-      # `--continue` lets the debug APK still be produced when the release
-      # variant trips over Firebase Crashlytics native-symbol upload.
-      - name: Build (debug + release)
+      - name: Build debug APK
         run: |
           chmod +x gradlew
-          ./gradlew --no-daemon --stacktrace --continue assembleDebug assembleRelease
-        continue-on-error: true
+          ./gradlew --no-daemon --stacktrace :app:assembleDebug
 
       - name: Collect build report
         if: always()
@@ -88,19 +119,17 @@ jobs:
           {
             echo '### Build artifacts'
             echo ''
-            find app/build/outputs -name '*.apk' -o -name '*.aab' 2>/dev/null | while read -r f; do
+            find app/build/outputs -name '*.apk' 2>/dev/null | while read -r f; do
               printf -- '- `%s` (%s)\n' "$f" "$(du -h "$f" | cut -f1)"
             done
           } >> "$GITHUB_STEP_SUMMARY"
 
-      - name: Upload APKs
+      - name: Upload APK
         if: always()
         uses: actions/upload-artifact@v4
         with:
-          name: samp-mobile-apk
-          path: |
-            app/build/outputs/apk/**/*.apk
-            app/build/outputs/mapping/**/mapping.txt
+          name: samp-mobile-debug-apk
+          path: app/build/outputs/apk/debug/**/*.apk
           if-no-files-found: warn
           retention-days: 30
 
