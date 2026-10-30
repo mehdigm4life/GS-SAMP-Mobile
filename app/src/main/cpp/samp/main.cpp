@@ -197,6 +197,16 @@ static const char* kStagePath     = "/storage/emulated/0/GS-SAMP/stage.txt";
 // Read by the signal handler, so only ever assigned a string literal.
 static const char* g_currentStage = "libsamp loaded";
 
+// The markers below are copied into a fixed buffer by hand, and at -O2 LLVM is
+// free to turn such a copy of a short literal into immediate stores - which
+// removes the literal from the binary. Then the diagnostics still work but
+// nothing in the built library proves that the reporter is linked in, so the
+// markers are pinned with "used" and are read from the name, not inlined.
+__attribute__((used)) static const char kCrashMarker[]       = "\n=== CRASH signal=";
+__attribute__((used)) static const char kExitMarker[]        = "\n=== EXIT atexit stage=";
+__attribute__((used)) static const char kKilledMarkerText[] = "previous session was killed without reporting";
+__attribute__((used)) static const char kCleanMarkerText[]  = "previous session ended cleanly";
+
 static size_t SsLen(const char* s) { size_t n = 0; while (s && s[n]) n++; return n; }
 
 static char* SsStr(char* out, const char* s) { while (s && *s) *out++ = *s++; return out; }
@@ -274,7 +284,7 @@ static void ReportCrash(int signum, siginfo_t* info, void* contextPtr, bool fata
 	char buf[512];
 	char* p = buf;
 
-	p = SsStr(p, "\n=== CRASH signal=");
+	p = SsStr(p, kCrashMarker);
 	p = SsHex(p, (uintptr_t)signum);
 	p = SsStr(p, " fault=");
 	p = SsHex(p, info ? (uintptr_t)info->si_addr : 0);
@@ -419,7 +429,7 @@ static void LogPreviousStage()
 
 	if (strcmp(last, "clean exit") == 0)
 	{
-		FLog("previous session ended cleanly");
+		FLog("%s", kCleanMarkerText);
 		return;
 	}
 
@@ -432,10 +442,10 @@ static void LogPreviousStage()
 
 	if (!haveCrash || (haveStage && stageStat.st_mtime > crashStat.st_mtime))
 	{
-		FLog("previous session was killed without reporting at stage: %s - "
+		FLog("%s at stage: %s - "
 		     "the process was killed by the system (low memory) or removed, "
 		     "not crashed; %s is the memory picture of that moment",
-		     last, detail[0] ? detail : "stage.txt");
+		     kKilledMarkerText, last, detail[0] ? detail : "stage.txt");
 	}
 	else
 	{
@@ -455,7 +465,7 @@ static void ReportExitAtExit()
 
 	char buf[256];
 	char* p = buf;
-	p = SsStr(p, "\n=== EXIT atexit stage=");
+	p = SsStr(p, kExitMarker);
 	p = SsStr(p, g_currentStage ? g_currentStage : "(none)");
 	p = SsStr(p, " rss=");
 	p = SsDec(p, ReadProcKb("/proc/self/status", "VmRSS"));

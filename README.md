@@ -113,15 +113,25 @@ Now:
   system still produces its own tombstone. `SIGILL`, `SIGTERM` and `SIGQUIT` (the
   signal the system sends to a stuck app) are handled too.
 * `GameStage()` records how far the startup got in
-  `/storage/emulated/0/GS-SAMP/stage.txt` and logs RSS, peak RSS and the system's
-  `MemAvailable` with every stage, so a start that is killed with `SIGKILL`
-  (low memory) is still localised: the stages are `libsamp loaded`,
-  `renderware`, `streaming images`, `scene load`, `game initialise`, `ui ready`,
+  `/storage/emulated/0/GS-SAMP/stage.txt` - the stage name on the first line,
+  `free=`/`rss=` on the second - and logs RSS, peak RSS and the system's
+  `MemAvailable` with every stage: `libsamp loaded`, `renderware`,
+  `streaming images`, `scene load`, `game initialise`, `ui ready`,
   `game loop running` and `clean exit`.
-* The launcher prints the stage the previous session stopped at before starting
-  the next one, and drops what it can from the Java heap first - the game runs in
-  the same process, so the installer's memory is still resident while the game
-  maps a gigabyte of texture databases.
+* An `atexit` reporter appends `=== EXIT atexit stage=...` to `crash.txt` when the
+  engine's own shutdown path calls `exit()`, which tears the process down with no
+  signal at all. A genuine clean exit is skipped, so the file only names
+  surprises.
+* A `SIGKILL` (low-memory killer, task removed) cannot be caught, so it is
+  recognised on the *next* start instead: `stage.txt` newer than `crash.txt`
+  means the previous session went away without reporting, and the launcher logs
+  that together with the memory numbers recorded at that stage.
+* The launcher prints how the previous session ended before starting the next
+  one, and drops what it can from the Java heap first - the game runs in the same
+  process, so the installer's memory is still resident while the game maps a
+  gigabyte of texture databases. It also waits for headroom (three
+  `ActivityManager.getMemoryInfo()` checks with a `gc` in between) before it
+  starts the game.
 
 The overlay font is part of the same contract. `libsamp` loads
 `SAMP/fonts/arial_bold.ttf` while the UI starts up, and
