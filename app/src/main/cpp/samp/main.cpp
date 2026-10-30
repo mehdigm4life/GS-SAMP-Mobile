@@ -5,6 +5,11 @@
 #include <sys/time.h>
 #include <time.h>
 #include <cstdio>
+#include <cstdlib>
+#include <cstring>
+#include <fcntl.h>
+#include <unistd.h>
+#include <signal.h>
 
 #include "main.h"
 #include "game/game.h"
@@ -169,90 +174,239 @@ struct sigaction act1_old;
 struct sigaction act2_old;
 struct sigaction act3_old;
 
-extern int g_iLastProcessedSkinCollision, g_iLastProcessedEntityCollision, g_iLastRenderedObject;
-extern uintptr_t g_dwLastRetAddrCrash;
+// ---------------------------------------------------------------------------
+// Stage tracking and crash reporting
+//
+// A start that dies without a trace is impossible to fix, and the report used to
+// be lost: the handlers chained to the previous handler (debuggerd) *first* and
+// only then called FLog(), which needs fopen/fprintf/malloc - none of them
+// async-signal-safe. When the fault happened inside the allocator the handler
+// deadlocked, and when the chained handler terminated the process the report was
+// never written at all. That is exactly how one start ended right after
+// "Loading script.img.." with no SIGSEGV/SIGABRT line in logcat.txt.
+//
+// Everything below the reporter line only uses open()/write()/fsync()/close() on
+// fixed paths and formats numbers by hand, then restores the default action and
+// re-raises the signal so the system crash reporter still runs.
+// ---------------------------------------------------------------------------
+static const char* kCrashLogPath  = "/storage/emulated/0/GS-SAMP/crash.txt";
+static const char* kStagePath     = "/storage/emulated/0/GS-SAMP/stage.txt";
+
+// Read by the signal handler, so only ever assigned a string literal.
+static const char* g_currentStage = "libsamp loaded";
+
+static size_t SsLen(const char* s) { size_t n = 0; while (s && s[n]) n++; return n; }
+
+static char* SsStr(char* out, const char* s) { while (s && *s) *out++ = *s++; return out; }
+
+static char* SsHex(char* out, uintptr_t v)
+{
+	*out++ = '0';
+	*out++ = 'x';
+	if (v == 0)
+	{
+		*out++ = '0';
+		return out;
+	}
+
+	char tmp[16];
+	int n = 0;
+	while (v)
+	{
+		const uintptr_t d = v & 0xF;
+		tmp[n++] = (char)(d < 10 ? ('0' + d) : ('a' + (d - 10)));
+		v >>= 4;
+	}
+	while (n)
+		*out++ = tmp[--n];
+
+	return out;
+}
+
+static void SsWriteAll(int fd, const char* buf, size_t len)
+{
+	while (len)
+	{
+		const ssize_t w = write(fd, buf, len);
+		if (w <= 0)
+			return;
+		buf += w;
+		len -= (size_t)w;
+	}
+}
+
+// Async-signal-safe: no allocation, no stdio.
+static void ReportFatal(int signum, siginfo_t* info, void* contextPtr)
+{
+	char buf[512];
+	char* p = buf;
+
+	p = SsStr(p, "\n=== CRASH signal=");
+	p = SsHex(p, (uintptr_t)signum);
+	p = SsStr(p, " fault=");
+	p = SsHex(p, info ? (uintptr_t)info->si_addr : 0);
+	p = SsStr(p, " code=");
+
+	uintptr_t pc = 0, lr = 0, sp = 0;
+	if (contextPtr)
+	{
+		const ucontext_t* ctx = (const ucontext_t*)contextPtr;
+#if defined(__aarch64__)
+		pc = (uintptr_t)ctx->uc_mcontext.pc;
+		lr = (uintptr_t)ctx->uc_mcontext.regs[30];
+		sp = (uintptr_t)ctx->uc_mcontext.sp;
+#else
+		pc = (uintptr_t)ctx->uc_mcontext.arm_pc;
+		lr = (uintptr_t)ctx->uc_mcontext.arm_lr;
+		sp = (uintptr_t)ctx->uc_mcontext.arm_sp;
+#endif
+	}
+	p = SsHex(p, info ? (uintptr_t)info->si_code : 0);
+	p = SsStr(p, " pc=");
+	p = SsHex(p, pc);
+	p = SsStr(p, " lr=");
+	p = SsHex(p, lr);
+	p = SsStr(p, " sp=");
+	p = SsHex(p, sp);
+	p = SsStr(p, " stage=");
+	p = SsStr(p, g_currentStage ? g_currentStage : "?");
+	p = SsStr(p, "\n");
+
+	const int fd = open(kCrashLogPath, O_WRONLY | O_CREAT | O_APPEND, 0660);
+	if (fd >= 0)
+	{
+		SsWriteAll(fd, buf, (size_t)(p - buf));
+		fsync(fd);
+		close(fd);
+	}
+
+	__android_log_write(ANDROID_LOG_FATAL, "SAMP", buf);
+
+	// Let the system produce its own tombstone as well, then die for real.
+	signal(signum, SIG_DFL);
+	raise(signum);
+}
+
+// ---------------------------------------------------------------------------
+// Stage recording: tells the next start exactly where the previous one stopped,
+// even when the process was killed with SIGKILL and nothing could be logged.
+// ---------------------------------------------------------------------------
+static long ReadProcKb(const char* path, const char* key)
+{
+	FILE* f = fopen(path, "r");
+	if (!f)
+		return -1;
+
+	char line[256];
+	const size_t keyLen = SsLen(key);
+	long value = -1;
+
+	while (fgets(line, sizeof(line), f))
+	{
+		if (strncmp(line, key, keyLen) != 0)
+			continue;
+
+		const char* p = line + keyLen;
+		while (*p == ' ' || *p == '\t' || *p == ':')
+			p++;
+		value = strtol(p, nullptr, 10);
+		break;
+	}
+
+	fclose(f);
+	return value;
+}
+
+void GameStage(const char* name)
+{
+	if (!name)
+		return;
+
+	g_currentStage = name;
+
+	FILE* f = fopen(kStagePath, "w");
+	if (f)
+	{
+		fprintf(f, "%s\n", name);
+		fclose(f);
+	}
+
+	FLog("STAGE %s | rss=%ldkB peak=%ldkB free=%ldkB",
+	     name,
+	     ReadProcKb("/proc/self/status", "VmRSS"),
+	     ReadProcKb("/proc/self/status", "VmPeak"),
+	     ReadProcKb("/proc/meminfo", "MemAvailable"));
+}
+
+// Called once per process start: reports how the previous run ended.
+static void LogPreviousStage()
+{
+	mkdir("/storage/emulated/0/GS-SAMP", 0770);
+
+	FILE* f = fopen(kStagePath, "r");
+	if (!f)
+	{
+		FLog("previous session: no stage recorded (first start)");
+		return;
+	}
+
+	char line[128] = { 0 };
+	const bool ok = fgets(line, sizeof(line), f) != nullptr;
+	fclose(f);
+	if (!ok)
+		return;
+
+	for (char* c = line; *c; ++c)
+	{
+		if (*c == '\n' || *c == '\r')
+			*c = 0;
+	}
+
+	FLog("previous session ended at stage: %s", line[0] ? line : "(empty)");
+}
+
+// All four handlers go through the async-signal-safe reporter first, then let
+// the system handle the crash. The detailed native backtrace that used to run
+// here (CStackTrace + FLog) is gone: it needed malloc/fopen, so it deadlocked
+// exactly when it was needed most and the start died without a single line.
+static void HandleFatal(int signum, siginfo_t* info, void* contextPtr)
+{
+	ReportFatal(signum, info, contextPtr);
+
+	// ReportFatal() re-raises with the default action; reaching this point means
+	// the signal was blocked, so fall back to the previous handler.
+	const struct sigaction* old = nullptr;
+	switch (signum)
+	{
+		case SIGSEGV: old = &act_old;  break;
+		case SIGABRT: old = &act1_old; break;
+		case SIGFPE:  old = &act2_old; break;
+		case SIGBUS:  old = &act3_old; break;
+		default: break;
+	}
+
+	if (old && old->sa_sigaction)
+		old->sa_sigaction(signum, info, contextPtr);
+}
+
 void handler(int signum, siginfo_t *info, void* contextPtr)
 {
-	ucontext* context = (ucontext_t*)contextPtr;
-
-	if (act_old.sa_sigaction)
-	{
-		act_old.sa_sigaction(signum, info, contextPtr);
-	}
-
-	if(info->si_signo == SIGSEGV)
-	{
-		FLog("SIGSEGV | Fault address: 0x%x", info->si_addr);
-
-		PRINT_CRASH_STATES(context);
-
-		CStackTrace::printBacktrace();
-	}
-
-	return;
+	HandleFatal(signum, info, contextPtr);
 }
 
 void handler1(int signum, siginfo_t *info, void* contextPtr)
 {
-	ucontext* context = (ucontext_t*)contextPtr;
-
-	if (act1_old.sa_sigaction)
-	{
-		act1_old.sa_sigaction(signum, info, contextPtr);
-	}
-
-	if(info->si_signo == SIGABRT)
-	{
-		FLog("SIGABRT | Fault address: 0x%x", info->si_addr);
-
-		PRINT_CRASH_STATES(context);
-
-		CStackTrace::printBacktrace();
-	}
-
-	return;
+	HandleFatal(signum, info, contextPtr);
 }
 
 void handler2(int signum, siginfo_t *info, void* contextPtr)
 {
-	ucontext* context = (ucontext_t*)contextPtr;
-
-	if (act2_old.sa_sigaction)
-	{
-		act2_old.sa_sigaction(signum, info, contextPtr);
-	}
-
-	if(info->si_signo == SIGFPE)
-	{
-		FLog("SIGFPE | Fault address: 0x%x", info->si_addr);
-
-		PRINT_CRASH_STATES(context);
-
-		CStackTrace::printBacktrace();
-	}
-
-	return;
+	HandleFatal(signum, info, contextPtr);
 }
 
 void handler3(int signum, siginfo_t *info, void* contextPtr)
 {
-	ucontext* context = (ucontext_t*)contextPtr;
-
-	if (act3_old.sa_sigaction)
-	{
-		act3_old.sa_sigaction(signum, info, contextPtr);
-	}
-
-	if(info->si_signo == SIGBUS)
-	{
-		FLog("SIGBUS | Fault address: 0x%x", info->si_addr);
-
-		PRINT_CRASH_STATES(context);
-
-		CStackTrace::printBacktrace();
-	}
-
-	return;
+	HandleFatal(signum, info, contextPtr);
 }
 
 void DoInitStuff()
@@ -380,6 +534,8 @@ void InitGui()
 	pUI = new UI(ImVec2(RsGlobal->maximumWidth, RsGlobal->maximumHeight), font_path.c_str());
 	pUI->initialize();
 	pUI->performLayout();
+
+	GameStage("ui ready");
 }
 
 #include "game/multitouch.h"
@@ -496,7 +652,21 @@ extern "C" JNIEXPORT jint JNICALL JNI_OnLoad(JavaVM* vm, void* reserved)
 	sigemptyset(&act3.sa_mask);
 	act3.sa_flags = SA_SIGINFO;
 	sigaction(SIGBUS, &act3, &act3_old);
-		
+
+	// SIGILL and SIGTERM are crashes too, and SIGQUIT is what the system sends
+	// when it considers the app stuck; all of them were invisible before.
+	struct sigaction act4;
+	act4.sa_sigaction = handler;
+	sigemptyset(&act4.sa_mask);
+	act4.sa_flags = SA_SIGINFO;
+	sigaction(SIGILL, &act4, nullptr);
+	sigaction(SIGTERM, &act4, nullptr);
+	sigaction(SIGQUIT, &act4, nullptr);
+
+	// Report where the previous run stopped before this one goes any further.
+	LogPreviousStage();
+	GameStage("libsamp loaded");
+
 	return JNI_VERSION_1_6;
 }
 

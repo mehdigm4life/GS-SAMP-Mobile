@@ -1064,6 +1064,10 @@ extern CJavaWrapper* pJavaWrapper;
 void (*MainMenuScreen__OnExit)();
 void MainMenuScreen__OnExit_hook()
 {
+	// The only clean way out: mark it so the next start does not report this
+	// session as an abnormal end.
+	GameStage("clean exit");
+
 	pGame->bIsGameExiting = true;
 
 	pNetGame->GetRakClient()->Disconnect(0);
@@ -1351,6 +1355,10 @@ stFile* NvFOpen(const char* r0, const char* r1, int r2, int r3)
     {
         sprintf(path, "%sSAMP/script.img", g_pszStorage);
         FLog("Loading script.img..");
+        // The initial scene streams in right after this file is opened; one
+        // start died in that window without leaving a signal behind, so the
+        // stage is recorded here to prove it next time.
+        GameStage("scene load");
     }
     // ----------------------------
     if(!strncmp(r1, "DATA/PEDS.IDE", 13))

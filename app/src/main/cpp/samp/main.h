@@ -40,6 +40,12 @@ uint32_t GetTickCount();
 void LogVoice(const char* fmt, ...);
 
 void FLog(const char* fmt, ...);
+
+// Records how far the startup got. The name is written to
+// /storage/emulated/0/GS-SAMP/stage.txt so the next start can report where the
+// previous one stopped, and the same line carries the process RSS, peak RSS and
+// the system's available memory (the value that decides an OOM kill).
+void GameStage(const char* name);
 void MyLog(const char* fmt, ...);
 void MyLog2(const char* fmt, ...);
 void ChatLog(const char* fmt, ...);

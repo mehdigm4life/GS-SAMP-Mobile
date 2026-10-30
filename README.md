@@ -95,6 +95,34 @@ index the engine opens is missing. `libsamp` therefore keeps two safety nets:
 * the launcher gate accepts any installed `mobile.<family>.tmb` for the same
   reason, and only opens the installer when no family is present at all.
 
+### Diagnosing a start that dies
+
+A session once ended right after `Loading script.img..` with nothing at all in
+the diagnostics file: no `SIGSEGV`, no `SIGABRT`. The crash reporting itself was
+the problem. The handlers chained to the previous handler (debuggerd) *first* and
+only then called `FLog()`, which needs `fopen`/`fprintf`/`malloc` - none of them
+async-signal-safe. When the fault happened inside the allocator the handler
+deadlocked, and when the chained handler terminated the process the report was
+never written.
+
+Now:
+
+* `ReportFatal()` writes `signal`, fault address, `si_code`, `pc`, `lr`, `sp` and
+  the current stage to `/storage/emulated/0/GS-SAMP/crash.txt` using only
+  `open`/`write`/`fsync`, then restores the default action and re-raises so the
+  system still produces its own tombstone. `SIGILL`, `SIGTERM` and `SIGQUIT` (the
+  signal the system sends to a stuck app) are handled too.
+* `GameStage()` records how far the startup got in
+  `/storage/emulated/0/GS-SAMP/stage.txt` and logs RSS, peak RSS and the system's
+  `MemAvailable` with every stage, so a start that is killed with `SIGKILL`
+  (low memory) is still localised: the stages are `libsamp loaded`,
+  `renderware`, `streaming images`, `scene load`, `game initialise`, `ui ready`,
+  `game loop running` and `clean exit`.
+* The launcher prints the stage the previous session stopped at before starting
+  the next one, and drops what it can from the Java heap first - the game runs in
+  the same process, so the installer's memory is still resident while the game
+  maps a gigabyte of texture databases.
+
 The overlay font is part of the same contract. `libsamp` loads
 `SAMP/fonts/arial_bold.ttf` while the UI starts up, and
 `ImFontAtlas::AddFontFromFileTTF()` calls `abort()` when the file is missing -

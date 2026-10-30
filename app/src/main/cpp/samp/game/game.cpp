@@ -83,6 +83,7 @@ void InstallWidgetHooks();
 void CGame::Initialize()
 {
 	FLog("CGame initializing..");
+	GameStage("game initialise");
 
     ApplySAMPPatchesInGame();
 	GameResetRadarColors();
@@ -661,6 +662,7 @@ static void LoadTextureDatabase(const char *name, TextureDatabaseFormat preferre
 
 bool CGame::InitialiseRenderWare() {
     FLog("InitialiseRenderWare ..");
+    GameStage("renderware");
 
     CCamera& TheCamera = *reinterpret_cast<CCamera*>(g_libGTASA + (VER_x32 ? 0x00951FA8 : 0xBBA8D0));
 
@@ -771,6 +773,15 @@ extern UI *pUI;
 void MainLoop();
 void CGame::Process() {
     if(bIsGameExiting)return;
+
+    // The first processed frame means the startup survived; this is the marker
+    // that tells the next start there is nothing to report.
+    static bool firstFrameLogged = false;
+    if (!firstFrameLogged)
+    {
+        firstFrameLogged = true;
+        GameStage("game loop running");
+    }
 
     MainLoop();
     if (pNetGame)
