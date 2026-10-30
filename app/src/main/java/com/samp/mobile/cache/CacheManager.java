@@ -37,6 +37,9 @@ public final class CacheManager {
     /** How many verify/download rounds before giving up. */
     private static final int MAX_PASSES = 3;
 
+    /** Attempts at the manifest before the installer reports a failure. */
+    private static final int CONNECT_ATTEMPTS = 4;
+
     private static final int CONNECT_TIMEOUT_MS = 20000;
     private static final int READ_TIMEOUT_MS = 30000;
 
@@ -151,6 +154,9 @@ public final class CacheManager {
         cancelFlag = false;
         pauseFlag = false;
         resetCounters();
+        // Switch the page out of "idle" before the worker exists, so pressing
+        // the button always produces a visible reaction straight away.
+        setStage(Stage.CONNECTING, "Contacting server...");
         worker = new Thread(new Runnable() {
             @Override
             public void run() {
@@ -167,11 +173,18 @@ public final class CacheManager {
         if (current != null && current.isActive()) {
             return;
         }
-        if (worker != null && worker.isAlive()) {
+        // Only terminal states may restart; anything else means a pass is still
+        // running. Checking the stage instead of Thread.isAlive() removes the
+        // race where the worker has already published FAILED but has not been
+        // reaped yet, which used to swallow the user's tap on retry.
+        Stage snapshotStage = stage;
+        if (snapshotStage != Stage.IDLE && snapshotStage != Stage.FAILED
+                && snapshotStage != Stage.CANCELLED) {
             return;
         }
         cancelFlag = false;
         pauseFlag = false;
+        setStage(Stage.CONNECTING, "Contacting server...");
         worker = new Thread(new Runnable() {
             @Override
             public void run() {
@@ -289,42 +302,87 @@ public final class CacheManager {
         }
     }
 
-    /** Fetches the config and the file list, then filters for this device. */
+    /**
+     * Fetches the config and the file list, then filters for this device.
+     *
+     * A cold start is the worst moment for the network: the Wi-Fi association
+     * may still be settling, DNS may not answer yet, or the radio just came out
+     * of sleep. A single failure there used to leave the page on "failed" until
+     * the user found the retry button, so transient errors are retried here with
+     * a growing delay. A malformed document is never retried: it would fail the
+     * same way every time.
+     */
     private List<RemoteFile> connect() {
-        setStage(Stage.CONNECTING, "Contacting server...");
-        try {
-            String configJson = HttpFetcher.get(configUrl, CONNECT_TIMEOUT_MS, READ_TIMEOUT_MS);
-            ManifestParser.ClientConfig config = ManifestParser.parseClientConfig(configJson);
-            log("client_config: version=" + config.versionCode + " list=" + config.urlCacheFiles);
+        Exception last = null;
 
-            String listUrl = HttpFetcher.resolve(configUrl, config.urlCacheFiles);
-            String listJson = HttpFetcher.get(listUrl, CONNECT_TIMEOUT_MS, READ_TIMEOUT_MS);
-
-            String base = listUrl;
-            List<RemoteFile> all = ManifestParser.parseFileList(listJson, base);
-            List<RemoteFile> filtered = ManifestParser.filterForDevice(all, gpuType);
-            log("manifest: " + all.size() + " entries, " + filtered.size()
-                    + " for this device (gpuType=" + gpuType + ")");
-
-            if (filtered.isEmpty()) {
-                throw new IllegalStateException("The server returned an empty file list");
+        for (int attempt = 1; attempt <= CONNECT_ATTEMPTS; attempt++) {
+            if (isCancelled()) {
+                return null;
             }
 
-            totalBytes = totalBytesOf(filtered);
-            filesTotal = filtered.size();
-            doneBytes = 0;
-            emit();
-            return filtered;
-
-        } catch (JSONException e) {
-            log("manifest parse error: " + e.getMessage());
-            setStage(Stage.FAILED, "Server response was not readable: " + e.getMessage());
-            return null;
-        } catch (Exception e) {
-            log("connect error: " + e);
-            setStage(Stage.FAILED, describe(e));
-            return null;
+            try {
+                return fetchManifest();
+            } catch (JSONException e) {
+                log("manifest parse error: " + e.getMessage());
+                setStage(Stage.FAILED, "Server response was not readable: " + e.getMessage());
+                return null;
+            } catch (Exception e) {
+                last = e;
+                log("attempt " + attempt + "/" + CONNECT_ATTEMPTS + " failed: " + e);
+                if (attempt < CONNECT_ATTEMPTS) {
+                    setStage(Stage.CONNECTING,
+                            "Connection problem, retrying (" + attempt + "/" + CONNECT_ATTEMPTS + ")");
+                    if (!waitUnlessCancelled(1500L * attempt)) {
+                        return null;
+                    }
+                }
+            }
         }
+
+        setStage(Stage.FAILED, describe(last));
+        return null;
+    }
+
+    /** One full attempt: client_config.json, then the file list. */
+    private List<RemoteFile> fetchManifest() throws Exception {
+        String configJson = HttpFetcher.get(configUrl, CONNECT_TIMEOUT_MS, READ_TIMEOUT_MS);
+        ManifestParser.ClientConfig config = ManifestParser.parseClientConfig(configJson);
+        log("client_config: version=" + config.versionCode + " list=" + config.urlCacheFiles);
+
+        String listUrl = HttpFetcher.resolve(configUrl, config.urlCacheFiles);
+        String listJson = HttpFetcher.get(listUrl, CONNECT_TIMEOUT_MS, READ_TIMEOUT_MS);
+
+        List<RemoteFile> all = ManifestParser.parseFileList(listJson, listUrl);
+        List<RemoteFile> filtered = ManifestParser.filterForDevice(all, gpuType);
+        log("manifest: " + all.size() + " entries, " + filtered.size()
+                + " for this device (gpuType=" + gpuType + ")");
+
+        if (filtered.isEmpty()) {
+            throw new IllegalStateException("The server returned an empty file list");
+        }
+
+        totalBytes = totalBytesOf(filtered);
+        filesTotal = filtered.size();
+        doneBytes = 0;
+        emit();
+        return filtered;
+    }
+
+    /** Sleeps, but returns early (false) when the user cancels. */
+    private boolean waitUnlessCancelled(long millis) {
+        long end = System.currentTimeMillis() + millis;
+        while (System.currentTimeMillis() < end) {
+            if (isCancelled()) {
+                return false;
+            }
+            try {
+                Thread.sleep(100L);
+            } catch (InterruptedException e) {
+                Thread.currentThread().interrupt();
+                return false;
+            }
+        }
+        return !isCancelled();
     }
 
     /**
