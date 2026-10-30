@@ -284,9 +284,13 @@ jobs:
             echo '```'
             echo
 
-            echo '### Compiler errors'
+            echo '### Compiler errors (every non stack-trace line)'
             echo '```'
-            grep -E "error:|FAILURE:|What went wrong|Could not resolve|BUILD FAILED" -A 3 test.log 2>/dev/null | head -200 || true
+            if [ -f test.log ]; then
+              grep -vE "^[[:space:]]*at " test.log | grep -vE "^[[:space:]]*$" | tail -300
+            else
+              echo '(test.log missing)'
+            fi
             echo '```'
             echo
 
