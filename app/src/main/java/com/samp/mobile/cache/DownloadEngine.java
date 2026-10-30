@@ -99,6 +99,8 @@ public class DownloadEngine {
 
     private Thread worker;
     private Listener listener;
+    /** Optional: records what each written file looked like. */
+    private volatile ReceiptStore receipts;
 
     /** Runs callbacks on the calling thread. Convenient for tests. */
     public DownloadEngine(File root) {
@@ -116,6 +118,15 @@ public class DownloadEngine {
 
     public void setListener(Listener listener) {
         this.listener = listener;
+    }
+
+    /**
+     * @param receipts store that gets one receipt per written file, so a later
+     *                 verification can prove the content instead of trusting the
+     *                 length; may be null
+     */
+    public void setReceiptStore(ReceiptStore receipts) {
+        this.receipts = receipts;
     }
 
     public State getState() {
@@ -374,6 +385,28 @@ public class DownloadEngine {
         return true;
     }
 
+    /**
+     * Stores length, timestamp and MD5 of the file that was just written.
+     *
+     * The digest costs one extra read of the file, which is trivial next to the
+     * network transfer that produced it, and it buys an exact content check on
+     * every later launch even when the server publishes no checksums.
+     */
+    private void recordReceipt(RemoteFile file, File target) {
+        ReceiptStore store = receipts;
+        if (store == null) {
+            return;
+        }
+        try {
+            String md5 = HashUtil.compute(target, RemoteFile.HashType.MD5);
+            if (md5 != null) {
+                store.put(file.getPath(), target.length(), target.lastModified(), md5);
+                store.save();
+            }
+        } catch (Throwable ignored) {
+        }
+    }
+
     private static boolean isAlreadyCorrect(RemoteFile file, File target) {
         if (!target.isFile()) {
             return false;
@@ -509,6 +542,7 @@ public class DownloadEngine {
                 }
             }
 
+            recordReceipt(file, target);
             return Outcome.SUCCESS;
 
         } catch (IOException e) {

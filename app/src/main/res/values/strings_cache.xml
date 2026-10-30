@@ -34,7 +34,7 @@
 
     <string name="cache_verify_pending">لم يتم التحقق من الملفات بعد</string>
     <string name="cache_verify_running">جارٍ التحقق من كل ملف…</string>
-    <string name="cache_verify_ok">تم التحقق من جميع الملفات بنجاح</string>
+    <string name="cache_verify_ok">تم التحقق: كل ملف مطابق للسيرفر (الحجم والمحتوى)</string>
     <string name="cache_verify_problem">ملفات ناقصة أو تالفة</string>
 
     <string name="cache_log_title">سجل التشخيص</string>

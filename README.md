@@ -34,7 +34,12 @@ client_config.json  ->  file list  ->  filter for this device's GPU
                     ->  verify again, repeat until the tree matches the server
 ```
 
-4. The game only starts after every file has been verified. If a download is
+4. The game only starts after the whole tree has been compared with the server
+   manifest: every entry must exist, have the published length, and - when the
+   server publishes a checksum - the same digest. Files are matched against a
+   receipt (length, timestamp, MD5) recorded when they were downloaded, so an
+   edit that keeps the same length is still caught. Delete one file by hand and
+   the next launch re-downloads exactly that file before the game opens. If a download is
    interrupted, the next run continues from the bytes already on disk (HTTP
    `Range`), so nothing is downloaded twice.
 5. If the game data is later damaged or removed, the same page offers an update

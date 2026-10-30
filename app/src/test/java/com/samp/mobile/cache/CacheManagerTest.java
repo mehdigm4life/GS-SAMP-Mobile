@@ -315,6 +315,154 @@ public class CacheManagerTest {
         assertEquals("two failures then a success", 3, configCalls.get());
     }
 
+    // ------------------------------------------------------------------
+    // The reported scenario: a file is removed by hand, then the app starts
+    // ------------------------------------------------------------------
+
+    /** Same manifest, but without checksums - like the live server today. */
+    private void publishManifestWithoutChecksums() throws IOException {
+        publishManifest();
+
+        StringBuilder list = new StringBuilder("{\"files\":[");
+        boolean first = true;
+        for (Map.Entry<String, byte[]> e : bodies.entrySet()) {
+            if (!e.getKey().startsWith("/files/")) {
+                continue;
+            }
+            String path = e.getKey().substring("/files/".length());
+            if (!first) {
+                list.append(',');
+            }
+            first = false;
+            list.append("{\"name\":\"").append(path)
+                    .append("\",\"path\":\"").append(path)
+                    .append("\",\"size\":").append(e.getValue().length)
+                    .append(",\"url\":\"/files/").append(path).append("\"}");
+        }
+        list.append("]}");
+        bodies.put("/files.json", list.toString().getBytes("UTF-8"));
+    }
+
+    private File state() throws IOException {
+        return temp.newFolder("cache-state-" + System.nanoTime());
+    }
+
+    /** A manager exactly as the app builds it: with receipts and a manifest copy. */
+    private CacheManager newManager(File stateDir) {
+        return new CacheManager(root, configUrl(), null, GpuDetector.DXT, stateDir);
+    }
+
+    @Test
+    public void aFileDeletedByHandIsDownloadedAgainOnTheNextLaunch() throws Exception {
+        publishManifest();
+        File stateDir = state();
+
+        CacheManager first = newManager(stateDir);
+        first.start();
+        assertTrue(awaitStage(first, CacheManager.Stage.COMPLETE, 90000));
+
+        File victim = new File(root, "texdb/mobile/mobile.dxt.tmb");
+        assertTrue("the file must exist after a successful install", victim.isFile());
+        assertTrue("cannot delete the test file", victim.delete());
+
+        int victimHitsBefore = server.hits("/files/texdb/mobile/mobile.dxt.tmb");
+        int healthyHitsBefore = server.hits("/files/data/a.dat");
+
+        // A fresh manager is what the launcher creates on the next app start.
+        CacheManager second = newManager(stateDir);
+        second.start();
+        assertTrue("the relaunch must notice the missing file and repair it",
+                awaitStage(second, CacheManager.Stage.COMPLETE, 90000));
+
+        assertTrue("the deleted file must be back", victim.isFile());
+        assertArrayEqualsFile(bodies.get("/files/texdb/mobile/mobile.dxt.tmb"), victim);
+        assertEquals("it must be fetched exactly once more",
+                victimHitsBefore + 1, server.hits("/files/texdb/mobile/mobile.dxt.tmb"));
+        // Nothing else had to move.
+        assertEquals("a healthy file must not be downloaded again",
+                healthyHitsBefore, server.hits("/files/data/a.dat"));
+    }
+
+    @Test
+    public void contentChangedWithoutChangingTheLengthIsDetectedAndReplaced() throws Exception {
+        // No checksums from the server: only the receipt can catch this.
+        publishManifestWithoutChecksums();
+        File stateDir = state();
+
+        CacheManager first = newManager(stateDir);
+        first.start();
+        assertTrue(awaitStage(first, CacheManager.Stage.COMPLETE, 90000));
+
+        File victim = new File(root, "data/b.dat");
+        int victimHitsBefore = server.hits("/files/data/b.dat");
+        int healthyHitsBefore = server.hits("/files/data/a.dat");
+        byte[] expected = bodies.get("/files/data/b.dat");
+        byte[] tampered = expected.clone();
+        tampered[10] ^= 0x55;          // same length, different content
+        writeFile(victim, tampered);
+        assertTrue(victim.setLastModified(System.currentTimeMillis() + 60000L));
+
+        CacheManager second = newManager(stateDir);
+        second.start();
+        assertTrue(awaitStage(second, CacheManager.Stage.COMPLETE, 90000));
+
+        assertArrayEqualsFile(expected, victim);
+        assertEquals("the tampered file must be fetched again",
+                victimHitsBefore + 1, server.hits("/files/data/b.dat"));
+        assertEquals("healthy files must not be touched",
+                healthyHitsBefore, server.hits("/files/data/a.dat"));
+    }
+
+    @Test
+    public void withNoNetworkACompleteTreeStillVerifiesAndAllowsTheGame() throws Exception {
+        publishManifest();
+        File stateDir = state();
+
+        CacheManager first = newManager(stateDir);
+        first.start();
+        assertTrue(awaitStage(first, CacheManager.Stage.COMPLETE, 90000));
+
+        // The player goes offline; the saved manifest must still drive a real
+        // verification, so a healthy tree is not blocked by a dead server.
+        server.close();
+        server = new FakeServer(new FakeServer.Handler() {
+            @Override
+            public void handle(FakeServer.Request request, OutputStream out) throws IOException {
+                FakeServer.sendNotFound(out);
+            }
+        });
+
+        CacheManager second = newManager(stateDir);
+        second.start();
+        assertTrue(awaitStage(second, CacheManager.Stage.COMPLETE, 180000));
+        assertTrue("the pass must report that it ran offline", second.isOffline());
+    }
+
+    @Test
+    public void withNoNetworkAMissingFileIsReportedInsteadOfStartingTheGame() throws Exception {
+        publishManifest();
+        File stateDir = state();
+
+        CacheManager first = newManager(stateDir);
+        first.start();
+        assertTrue(awaitStage(first, CacheManager.Stage.COMPLETE, 90000));
+
+        assertTrue(new File(root, "data/b.dat").delete());
+
+        server.close();
+        server = new FakeServer(new FakeServer.Handler() {
+            @Override
+            public void handle(FakeServer.Request request, OutputStream out) throws IOException {
+                FakeServer.sendNotFound(out);
+            }
+        });
+
+        CacheManager second = newManager(stateDir);
+        second.start();
+        assertTrue("a missing file with no network must not report success",
+                awaitStage(second, CacheManager.Stage.FAILED, 180000));
+    }
+
     @Test
     public void unreachableServerIsReportedAsFailureNotAsSuccess() throws Exception {
         // A port with no listener: the installer must fail loudly instead of
