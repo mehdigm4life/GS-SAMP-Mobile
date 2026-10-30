@@ -109,9 +109,10 @@ public final class ManifestParser {
 
         List<RemoteFile> out = new ArrayList<>(array.length());
         String resolvedBase = baseUrl == null ? "" : baseUrl;
-        if (!resolvedBase.isEmpty() && !resolvedBase.endsWith("/")) {
-            resolvedBase = resolvedBase + "/";
-        }
+        // Relative file URLs are relative to the folder the manifest lives in,
+        // not to the manifest file itself: https://host/dir/list.json means
+        // https://host/dir/<file>.
+        String baseDir = directoryOf(resolvedBase);
 
         for (int i = 0; i < array.length(); i++) {
             JSONObject o = array.optJSONObject(i);
@@ -131,11 +132,15 @@ public final class ManifestParser {
             long size = o.optLong("size", o.optLong("bytes", -1L));
 
             String url = optString(o, "url", "download_url", "downloadUrl");
-            if (url != null && url.startsWith("/")) {
-                // Relative to the manifest host.
+            if (url == null || url.trim().isEmpty()) {
+                // No URL at all: the file sits next to the manifest.
+                url = baseDir + RemoteFile.normalizePath(path);
+            } else if (url.startsWith("/")) {
+                // Absolute path on the manifest host.
                 url = hostOf(resolvedBase) + url;
-            } else if (url == null || url.trim().isEmpty()) {
-                url = resolvedBase + RemoteFile.normalizePath(path);
+            } else if (!url.startsWith("http://") && !url.startsWith("https://")) {
+                // Relative path.
+                url = baseDir + url;
             }
 
             RemoteFile.HashType hashType = RemoteFile.HashType.NONE;
@@ -177,6 +182,19 @@ public final class ManifestParser {
             return RemoteFile.HashType.CRC32;
         }
         return RemoteFile.HashType.NONE;
+    }
+
+    /** Folder part of a URL, always ending with a slash. */
+    private static String directoryOf(String url) {
+        if (url == null || url.isEmpty()) {
+            return "";
+        }
+        int schemeEnd = url.indexOf("://");
+        int slash = url.lastIndexOf('/');
+        if (slash < 0 || (schemeEnd >= 0 && slash <= schemeEnd + 2)) {
+            return url.endsWith("/") ? url : url + "/";
+        }
+        return url.substring(0, slash + 1);
     }
 
     private static String hostOf(String url) {

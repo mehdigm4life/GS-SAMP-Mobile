@@ -133,7 +133,7 @@ public class ManifestParserTest {
     public void resolvesRelativeUrls() {
         assertEquals("https://host/x.json",
                 HttpFetcher.resolve("https://host/files.json", "/x.json"));
-        assertEquals("https://host/v2/f.json",
+        assertEquals("https://host/dir/v2/f.json",
                 HttpFetcher.resolve("https://host/dir/files.json", "v2/f.json"));
         assertEquals("https://cdn/x.json",
                 HttpFetcher.resolve("https://host/files.json", "https://cdn/x.json"));
