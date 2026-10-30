@@ -242,26 +242,65 @@ jobs:
           cat verify.md >> "$GITHUB_STEP_SUMMARY"
           exit $status
 
+      # The raw Actions log is only reachable from the GitHub UI, so mirror the
+      # failure into an issue where any API client can read it. Compile errors
+      # and assertion messages are extracted explicitly, because those are the
+      # only things that explain a red run.
       - name: Publish failure log as an issue
         if: failure()
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
+          set -uo pipefail
           {
-            echo 'Gradle build failed.'
-            echo ''
-            if [ -f probe.log ]; then echo 'Probe:'; echo '```'; cat probe.log; echo '```'; echo ''; fi
-            if [ -f test.log ]; then echo 'Unit tests:'; echo '```'; tail -c 15000 test.log; echo '```'; echo ''; fi
-            if [ ! -f build.log ]; then echo 'build.log missing'; exit 0; fi
-            echo 'Tail of the log:'
-            echo ''
+            echo "Failed run: $GITHUB_SERVER_URL/$GITHUB_REPOSITORY/actions/runs/$GITHUB_RUN_ID"
+            echo
+
+            echo '### Unit test results'
             echo '```'
-            tail -c 30000 build.log
+            python3 - <<'PYEOF' || echo "(no test-results xml)"
+          import glob, xml.etree.ElementTree as ET
+          found = False
+          for path in sorted(glob.glob('app/build/test-results/testDebugUnitTest/*.xml')):
+              root = ET.parse(path).getroot()
+              found = True
+              print('%s: tests=%s failures=%s errors=%s' % (
+                  root.get('name'), root.get('tests'), root.get('failures'), root.get('errors')))
+              for case in root.iter('testcase'):
+                  for bad in list(case.iter('failure')) + list(case.iter('error')):
+                      print('  FAILED %s.%s' % (case.get('classname'), case.get('name')))
+                      msg = (bad.get('message') or '') + '\n' + (bad.text or '')
+                      for line in msg.strip().splitlines()[:25]:
+                          print('    ' + line)
+          if not found:
+              print('(no test-results xml produced - compilation probably failed)')
+          PYEOF
             echo '```'
+            echo
+
+            echo '### Tail of the unit test log'
+            echo '```'
+            if [ -f test.log ]; then tail -c 20000 test.log; else echo '(test.log missing)'; fi
+            echo '```'
+            echo
+
+            echo '### Compiler errors'
+            echo '```'
+            grep -E "error:|FAILURE:|What went wrong|Could not resolve|BUILD FAILED" -A 3 test.log 2>/dev/null | head -200 || true
+            echo '```'
+            echo
+
+            if [ -f build.log ]; then
+              echo '### Tail of the APK build log'
+              echo '```'
+              tail -c 20000 build.log
+              echo '```'
+            fi
           } > /tmp/body.md
+
           gh issue create --repo "$GITHUB_REPOSITORY" \
             --title "Build failure (run ${{ github.run_number }})" \
-            --body-file /tmp/body.md || true
+            --body-file /tmp/body.md || echo "issue creation failed"
 
       # Proof that the diagnostics really moved: the constant must be present
       # in both the compiled Java (classes*.dex) and libsamp.so.
