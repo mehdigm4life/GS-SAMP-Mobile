@@ -15,16 +15,33 @@ public class WarMedia extends WarGamepad
     private String baseDirectory;
     private String baseDirectoryRoot;
 
+    /**
+     * Folder the game treats as its data root (g_pszStorage on the native side).
+     *
+     * This used to be getExternalFilesDir(null), i.e.
+     * /storage/emulated/0/Android/data/com.samp.mobile/files/. That location is
+     * hidden from file managers, from MTP and from USB on Android 11+, so the
+     * player had no way to place the game cache there: the only code that ever
+     * populated it was the old in-app downloader.
+     *
+     * The data root is now a plain folder on the shared volume, which is what
+     * the project README documents and which any file manager can write to:
+     *
+     *     /storage/emulated/0/GTA/
+     *
+     * StorageGateActivity requests MANAGE_EXTERNAL_STORAGE before this activity
+     * starts, so the game can both read and write it.
+     */
+    public static final String GAME_ROOT = "/storage/emulated/0/GTA/";
+
     public String GetGameBaseDirectory() {
-        if (Environment.getExternalStorageState().equals("mounted"))
+        if (Environment.getExternalStorageState().equals(Environment.MEDIA_MOUNTED))
         {
             try
             {
-                File externalFilesDir = getExternalFilesDir(null);
-                String absolutePath = externalFilesDir.getAbsolutePath();
-                this.baseDirectoryRoot = absolutePath.substring(0, absolutePath.indexOf("/Android"));
-                return externalFilesDir.getAbsolutePath() + "/";
-                //return Environment.getExternalStorageDirectory() + "/SAMPMOBILE/";
+                // Root of the shared volume, published as STORAGE_ROOT_BASE.
+                this.baseDirectoryRoot = Environment.getExternalStorageDirectory().getAbsolutePath();
+                return GAME_ROOT;
             } catch (Exception e)
             {
             }

@@ -235,17 +235,51 @@ public class StorageGateActivity extends AppCompatActivity {
     // Hand-over to the game
     // ------------------------------------------------------------------
 
-    private void startGameIfPossible() {
+    /**
+     * Returns a human readable summary of what is missing under GAME_ROOT, or
+     * null when the cache looks usable.
+     *
+     * These are exactly the entries the native side needs first: "data" holds
+     * the .dat file definitions and "SAMP" holds main.scm plus settings.ini.
+     */
+    private String describeMissingData() {
         File root = new File(GAME_ROOT);
         if (!root.isDirectory()) {
-            Log.w(TAG, "game root missing: " + GAME_ROOT);
-            logLine("game root MISSING: " + GAME_ROOT);
+            return GAME_ROOT + " (folder does not exist)";
+        }
+
+        StringBuilder missing = new StringBuilder();
+        String[] required = {"data", "SAMP"};
+        for (String entry : required) {
+            if (!new File(root, entry).exists()) {
+                if (missing.length() > 0) {
+                    missing.append(", ");
+                }
+                missing.append(entry).append('/');
+            }
+        }
+        return missing.length() == 0 ? null : missing.toString();
+    }
+
+    private void startGameIfPossible() {
+        String missing = describeMissingData();
+        if (missing != null) {
+            Log.w(TAG, "game data incomplete: " + missing);
+            logLine("game data INCOMPLETE: " + missing);
             new AlertDialog.Builder(this)
                     .setTitle("Game data not found")
-                    .setMessage("Storage access is granted, but this folder does not exist yet:\n\n"
-                            + GAME_ROOT
-                            + "\n\nExtract the GTA cache there (it must contain the \"data\" folder), then reopen the app."
-                            + "\n\nDiagnostics are written to:\n" + LOG_DIR + "/" + LOG_FILE)
+                    .setMessage("Storage access is granted, but the game cache is not in place yet.\n\n"
+                            + "Missing: " + missing + "\n\n"
+                            + "The cache must be extracted to:\n"
+                            + GAME_ROOT + "/\n\n"
+                            + "It has to contain at least these entries:\n"
+                            + "  data/\n"
+                            + "  SAMP/\n"
+                            + "  models/\n\n"
+                            + "The client now reads its data from this folder instead of\n"
+                            + "Android/data/com.samp.mobile/files/, which Android 11+ hides from\n"
+                            + "file managers.\n\n"
+                            + "Diagnostics are written to:\n" + LOG_DIR + "/" + LOG_FILE)
                     .setCancelable(false)
                     .setPositiveButton("Continue anyway", new DialogInterface.OnClickListener() {
                         @Override
@@ -323,21 +357,27 @@ public class StorageGateActivity extends AppCompatActivity {
             ensureLogDir();
         }
 
-        boolean written = appendTo(out, line + "\n");
-        if (!written) {
-            if (PENDING.size() < PENDING_MAX) {
-                PENDING.add(line);
-            }
-            return;
-        }
-
+        // Flush the queued lines FIRST, so the file stays in chronological
+        // order even though the earliest lines could not be written at the
+        // time they happened.
         if (!PENDING.isEmpty()) {
             StringBuilder sb = new StringBuilder();
             for (String pendingLine : PENDING) {
                 sb.append(pendingLine).append('\n');
             }
+            if (!appendTo(out, sb.toString())) {
+                if (PENDING.size() < PENDING_MAX) {
+                    PENDING.add(line);
+                }
+                return;
+            }
             PENDING.clear();
-            appendTo(out, sb.toString());
+        }
+
+        if (!appendTo(out, line + "\n")) {
+            if (PENDING.size() < PENDING_MAX) {
+                PENDING.add(line);
+            }
         }
     }
 
