@@ -265,6 +265,10 @@ void CStreaming::InitImageList() {
     CStreaming::AddImageToList("TEXDB\\SAMP.IMG", true);
     CStreaming::AddImageToList("TEXDB\\SAMPCOL.IMG", true);
 #endif
+
+    // The scene that follows reads the image list; recording it here is what
+    // localises a start that dies while the world streams in.
+    GameStage("streaming images");
 }
 
 // Request a given model to be loaded.

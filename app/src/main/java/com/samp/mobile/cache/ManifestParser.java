@@ -301,7 +301,13 @@ public final class ManifestParser {
             if (!f.isSafePath()) {
                 continue;
             }
-            if (isIgnoredName(f.getName())) {
+            // Match the file name and the last path segment: the server sends
+            // names such as "SAMP/svlog.txt", so comparing only getName() let
+            // files the game rewrites at runtime (svlog.txt, samp_log.txt)
+            // through. Every start then "repaired" them and downloaded them
+            // again, racing with the game that was writing the same file.
+            if (isIgnoredName(f.getName())
+                    || isIgnoredName(RemoteFile.lastSegment(f.getPath()))) {
                 continue;
             }
             if (f.getUrl() == null || f.getUrl().trim().isEmpty()) {
