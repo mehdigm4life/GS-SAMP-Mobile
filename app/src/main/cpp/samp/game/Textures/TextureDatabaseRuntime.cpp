@@ -7,14 +7,26 @@
 
 namespace
 {
-    // The engine ignores the format it is handed: Load() stores it at [db+0xa0]
-    // and the format selection at 0x220700 rewrites it, so every database ends
-    // up as DXT on the devices seen so far (the launcher asked for DF_PVR for
-    // "player" and the engine still opened texdb/player/player.dxt.tmb).
-    // A database whose .dxt index is missing therefore crashes in
-    // TextureDatabaseRuntime::SortEntries (SIGSEGV 0x6f1 / 0x133f), so only a
-    // fingerprint of the family the engine really opens is accepted here.
-    const char *g_engineFamily = "dxt";
+    struct TexDbFamily
+    {
+        TextureDatabaseFormat format;
+        const char *suffix;
+    };
+
+    // DXT first: the engine resolves every database to DXT on the devices seen
+    // so far (the launcher asked for DF_PVR for "player" and the engine still
+    // opened texdb/player/player.dxt.tmb), so that is the family it will really
+    // open. The others follow in the order the server publishes them.
+    const TexDbFamily g_texDbFamilies[] = {
+        { DF_DXT, "dxt" },
+        { DF_PVR, "pvr" },
+        { DF_ETC, "etc" },
+        { DF_UNC, "unc" },
+        { DF_360, "360" },
+        { DF_PS3, "ps3" },
+    };
+
+    const int g_texDbFamilyCount = (int)(sizeof(g_texDbFamilies) / sizeof(g_texDbFamilies[0]));
 
     // /storage/emulated/0/GTA/ is the root the launcher installs into; it is only
     // used when the engine's own StorageRootBuffer has not been filled yet.
@@ -48,25 +60,16 @@ TextureDatabaseFormat TextureDatabaseRuntime::ResolveFormatForDevice(const char 
     if (!withName || !withName[0])
         return preferredFormat;
 
-    // Pass the family the engine resolves to anyway, so the request and the file
-    // that gets opened can never disagree.
-    if (TexDbTmbExists(withName, g_engineFamily))
+    for (int i = 0; i < g_texDbFamilyCount; ++i)
     {
-        FLog("texdb %s: opening .%s (installed on disk)", withName, g_engineFamily);
-        return DF_DXT;
+        if (TexDbTmbExists(withName, g_texDbFamilies[i].suffix))
+        {
+            FLog("texdb %s: opening .%s (installed on disk)", withName, g_texDbFamilies[i].suffix);
+            return g_texDbFamilies[i].format;
+        }
     }
 
-    if (preferredFormat != DF_Default && preferredFormat != DF_ALL
-        && TexDbTmbExists(withName, preferredFormat == DF_PVR ? "pvr"
-                            : preferredFormat == DF_ETC ? "etc"
-                            : preferredFormat == DF_UNC ? "unc"
-                            : preferredFormat == DF_360 ? "360" : "ps3"))
-    {
-        FLog("texdb %s: no .dxt index, using the requested family instead", withName);
-        return preferredFormat;
-    }
-
-    FLog("texdb %s: no .dxt index installed, keeping the default resolution", withName);
+    FLog("texdb %s: no index installed at all, keeping the requested family", withName);
     return preferredFormat;
 }
 
@@ -75,25 +78,12 @@ bool TextureDatabaseRuntime::IsTextureDatabaseInstalled(const char *withName)
     if (!withName || !withName[0])
         return false;
 
-    if (TexDbTmbExists(withName, g_engineFamily))
-        return true;
-
-    // Say exactly what is on disk: the engine would open .dxt and crash in
-    // SortEntries, so the caller skips this database instead of loading it.
-    const char *families[] = { "pvr", "etc", "unc", "360", "ps3" };
-    char found[0x80] = { 0 };
-    for (int i = 0; i < 5; ++i)
+    for (int i = 0; i < g_texDbFamilyCount; ++i)
     {
-        if (TexDbTmbExists(withName, families[i]))
-        {
-            if (found[0])
-                strncat(found, ",", sizeof(found) - strlen(found) - 1);
-            strncat(found, families[i], sizeof(found) - strlen(found) - 1);
-        }
+        if (TexDbTmbExists(withName, g_texDbFamilies[i].suffix))
+            return true;
     }
 
-    FLog("texdb %s: no .%s index installed (on disk: %s) - engine load skipped",
-         withName, g_engineFamily, found[0] ? found : "nothing");
     return false;
 }
 
