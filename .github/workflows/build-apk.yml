@@ -222,17 +222,33 @@ jobs:
             exit 0
           fi
           tmp=$(mktemp -d)
-          if ! unzip -o -q "$APK" 'lib/arm64-v8a/libsamp.so' -d "$tmp"; then
-            echo "::notice::no libsamp.so in the APK"
-            exit 0
-          fi
+          unzip -o -q "$APK" 'lib/arm64-v8a/libsamp.so' -d "$tmp" || true
           NM=$(find "${ANDROID_HOME:-/usr/local/lib/android/sdk}/ndk" -name llvm-nm -type f 2>/dev/null | sort -r | head -1)
           if [ -z "$NM" ]; then
             echo "::notice::llvm-nm not found, skipping the symbol map"
             exit 0
           fi
           echo "::notice::resolving with $NM"
-          SO="$tmp/lib/arm64-v8a/libsamp.so" NM="$NM" python3 - <<'PYMAP'
+          # The library inside the APK is stripped: AGP removes the symbol table
+          # before packaging. The unstripped copy stays in the build tree, so the
+          # largest libsamp.so that still has symbols is the one to read.
+          SO=""
+          for candidate in "$tmp/lib/arm64-v8a/libsamp.so" \
+                           $(find app -name 'libsamp.so' -path '*arm64-v8a*' -type f 2>/dev/null); do
+            [ -f "$candidate" ] || continue
+            count=$("$NM" -C --defined-only "$candidate" 2>/dev/null | wc -l)
+            echo "candidate: $candidate ($count symbols)"
+            case "$candidate" in
+              "$tmp"*) ;;
+              *) if [ "$count" -gt 100 ]; then SO="$candidate"; fi ;;
+            esac
+          done
+          if [ -z "$SO" ]; then
+            echo "::notice::no unstripped libsamp.so in the build tree"
+            exit 0
+          fi
+          echo "reading symbols from $SO"
+          SO="$SO" NM="$NM" python3 - <<'PYMAP'
           import bisect, os, subprocess
           so, nm = os.environ["SO"], os.environ["NM"]
           out = subprocess.run([nm, "-C", "--defined-only", "--numeric-sort", so],
