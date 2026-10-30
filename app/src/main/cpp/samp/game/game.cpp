@@ -639,6 +639,26 @@ void LightsCreate(RpWorld* world) {
 
 void InitGui();
 
+// Opens one texdb database with the family that is really installed.
+//
+// The engine used to resolve DF_Default from its own GL capability flags and,
+// on the PowerVR Rogue GE8320 (Xiaomi M2006C3MG), asked for mobile.dxt.tmb on a
+// driver without S3TC: the file is not in the cache, Load() dereferences the
+// null database in TextureDatabaseRuntime::SortEntries and the process dies with
+// SIGSEGV (fault address 0x6f1) right after the loading screen appears.
+// Choosing the family from the files on disk removes that class of crash
+// completely: the engine can only ever ask for an index the installer verified.
+static void LoadTextureDatabase(const char *name, TextureDatabaseFormat preferredFormat)
+{
+    if (!TextureDatabaseRuntime::IsTextureDatabaseInstalled(name))
+    {
+        FLog("texdb %s: not installed, skipping the engine load", name);
+        return;
+    }
+
+    TextureDatabaseRuntime::Load(name, false, TextureDatabaseRuntime::ResolveFormatForDevice(name, preferredFormat));
+}
+
 bool CGame::InitialiseRenderWare() {
     FLog("InitialiseRenderWare ..");
 
@@ -648,22 +668,22 @@ bool CGame::InitialiseRenderWare() {
     CVisibilityPlugins::Initialise();
 
 #if VER_SAMP
-    TextureDatabaseRuntime::Load("mobile", false, TextureDatabaseFormat::DF_Default);
-    TextureDatabaseRuntime::Load("txd", false, TextureDatabaseFormat::DF_Default);
-    TextureDatabaseRuntime::Load("gta3", false, TextureDatabaseFormat::DF_Default);
-    TextureDatabaseRuntime::Load("gta_int", false, TextureDatabaseFormat::DF_Default);
-    TextureDatabaseRuntime::Load("cutscene", false, TextureDatabaseFormat::DF_Default);
-    TextureDatabaseRuntime::Load("player", false, TextureDatabaseFormat::DF_PVR);
-    TextureDatabaseRuntime::Load("menu", false, TextureDatabaseFormat::DF_PVR);
+    LoadTextureDatabase("mobile", TextureDatabaseFormat::DF_Default);
+    LoadTextureDatabase("txd", TextureDatabaseFormat::DF_Default);
+    LoadTextureDatabase("gta3", TextureDatabaseFormat::DF_Default);
+    LoadTextureDatabase("gta_int", TextureDatabaseFormat::DF_Default);
+    LoadTextureDatabase("cutscene", TextureDatabaseFormat::DF_Default);
+    LoadTextureDatabase("player", TextureDatabaseFormat::DF_PVR);
+    LoadTextureDatabase("menu", TextureDatabaseFormat::DF_PVR);
 #else
-    TextureDatabaseRuntime::Load("samp", false, TextureDatabaseFormat::DF_Default);
-    TextureDatabaseRuntime::Load("mobile", false, TextureDatabaseFormat::DF_Default);
-    TextureDatabaseRuntime::Load("txd", false, TextureDatabaseFormat::DF_Default);
-    TextureDatabaseRuntime::Load("gta3", false, TextureDatabaseFormat::DF_Default);
-    TextureDatabaseRuntime::Load("gta_int", false, TextureDatabaseFormat::DF_Default);
-    TextureDatabaseRuntime::Load("player", false, TextureDatabaseFormat::DF_PVR);
-    TextureDatabaseRuntime::Load("menu", false, TextureDatabaseFormat::DF_PVR);
-    //TextureDatabaseRuntime::Load("cutscene", false, TextureDatabaseFormat::DF_Default);
+    LoadTextureDatabase("samp", TextureDatabaseFormat::DF_Default);
+    LoadTextureDatabase("mobile", TextureDatabaseFormat::DF_Default);
+    LoadTextureDatabase("txd", TextureDatabaseFormat::DF_Default);
+    LoadTextureDatabase("gta3", TextureDatabaseFormat::DF_Default);
+    LoadTextureDatabase("gta_int", TextureDatabaseFormat::DF_Default);
+    LoadTextureDatabase("player", TextureDatabaseFormat::DF_PVR);
+    LoadTextureDatabase("menu", TextureDatabaseFormat::DF_PVR);
+    //LoadTextureDatabase("cutscene", TextureDatabaseFormat::DF_Default);
 
     /*TextureDatabaseRuntime* radar = TextureDatabaseRuntime::Load("radar", false, TextureDatabaseFormat::DF_ETC);
     TextureDatabaseRuntime::Register(radar);

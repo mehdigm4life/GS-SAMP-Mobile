@@ -5,6 +5,105 @@
 #include "TextureDatabaseRuntime.h"
 #include "../vendor/armhook/patch.h"
 
+namespace
+{
+    struct TexDbFamily
+    {
+        TextureDatabaseFormat format;
+        const char *suffix;
+    };
+
+    // Same preference the launcher uses: PVRTC first (PowerVR and most Mali
+    // parts), then S3TC/DXT, then ETC1 (mandatory in OpenGL ES 2.0), then the
+    // console-only families. Every family is only accepted when its .tmb file
+    // is really on disk.
+    const TexDbFamily g_texDbFamilies[] = {
+        { DF_PVR, "pvr" },
+        { DF_DXT, "dxt" },
+        { DF_ETC, "etc" },
+        { DF_UNC, "unc" },
+        { DF_360, "360" },
+        { DF_PS3, "ps3" },
+    };
+
+    const int g_texDbFamilyCount = (int)(sizeof(g_texDbFamilies) / sizeof(g_texDbFamilies[0]));
+
+    // /storage/emulated/0/GTA/ is the root the launcher installs into; it is only
+    // used when the engine's own StorageRootBuffer has not been filled yet.
+    const char *g_texDbFallbackRoot = "/storage/emulated/0/GTA/";
+
+    bool TexDbTmbExists(const char *dbName, const char *suffix)
+    {
+        char path[0x200];
+
+        const char *roots[3];
+        roots[0] = (g_pszStorage && g_pszStorage[0]) ? g_pszStorage : nullptr;
+        roots[1] = g_texDbFallbackRoot;
+        roots[2] = "";
+
+        for (int i = 0; i < 3; ++i)
+        {
+            if (!roots[i])
+                continue;
+
+            snprintf(path, sizeof(path), "%stexdb/%s/%s.%s.tmb", roots[i], dbName, dbName, suffix);
+            if (access(path, R_OK) == 0)
+                return true;
+        }
+
+        return false;
+    }
+}
+
+TextureDatabaseFormat TextureDatabaseRuntime::ResolveFormatForDevice(const char *withName, TextureDatabaseFormat preferredFormat)
+{
+    if (!withName || !withName[0])
+        return preferredFormat;
+
+    if (preferredFormat != DF_Default && preferredFormat != DF_ALL)
+    {
+        for (int i = 0; i < g_texDbFamilyCount; ++i)
+        {
+            if (g_texDbFamilies[i].format == preferredFormat && TexDbTmbExists(withName, g_texDbFamilies[i].suffix))
+            {
+                FLog("texdb %s: requested .%s is installed", withName, g_texDbFamilies[i].suffix);
+                return preferredFormat;
+            }
+        }
+
+        FLog("texdb %s: requested family is not installed, looking for an installed one", withName);
+    }
+
+    for (int i = 0; i < g_texDbFamilyCount; ++i)
+    {
+        if (TexDbTmbExists(withName, g_texDbFamilies[i].suffix))
+        {
+            FLog("texdb %s: opening .%s (installed on disk)", withName, g_texDbFamilies[i].suffix);
+            return g_texDbFamilies[i].format;
+        }
+    }
+
+    // Nothing installed for this database: keep the engine's own behaviour so the
+    // real cause stays visible in the log instead of being masked here.
+    FLog("texdb %s: no .tmb found for any family, keeping the default resolution", withName);
+    return preferredFormat;
+}
+
+bool TextureDatabaseRuntime::IsTextureDatabaseInstalled(const char *withName)
+{
+    if (!withName || !withName[0])
+        return false;
+
+    for (int i = 0; i < g_texDbFamilyCount; ++i)
+    {
+        if (TexDbTmbExists(withName, g_texDbFamilies[i].suffix))
+            return true;
+    }
+
+    return false;
+}
+
+
 TextureDatabaseRuntime* TextureDatabaseRuntime::Load(const char *withName, bool fullyLoad, TextureDatabaseFormat forcedFormat)
 {
     return CHook::CallFunction<TextureDatabaseRuntime*>(g_libGTASA + (VER_x32 ? 0x001EA864 + 1 : 0x28771C), withName, fullyLoad, forcedFormat);

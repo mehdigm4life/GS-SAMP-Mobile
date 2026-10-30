@@ -61,13 +61,29 @@ The manifest is read from the project's own endpoint
 (`https://samp-mobile.shop/client_config.json`), which points at the file list.
 Texture packs are filtered per GPU family (`.dxt` / `.etc` / `.pvr`) so a device
 downloads only the variant it can render. The family is chosen by probing the
-same GL extensions libGTASA probes (`GL_EXT_texture_compression_s3tc`, then
-`GL_IMG_texture_compression_pvrtc`, then ETC1) - not by the renderer name. A
-vendor string such as "PowerVR" says nothing about which formats the driver can
-actually sample: the GE8320 advertises S3TC, so the game loads
-`texdb/mobile/mobile.dxt.tmb`. Before starting the game the launcher also checks
-that exact file exists, so a cache built for the wrong family opens the installer
-instead of crashing in `TextureDatabaseRuntime::SortEntries`.
+GL extensions (`GL_IMG_texture_compression_pvrtc` first, then S3TC/ATC, then
+ETC1) - not by the renderer name. A vendor string such as "PowerVR" says nothing
+about which formats the driver can sample, so the extensions are the only usable
+signal.
+
+On the device side the game must open the *same* family that was installed. The
+engine used to resolve `DF_Default` from its own capability flags
+(`has_s3tc` / `has_pvrtc` / `has_atitc` in `batexdb`) and on the PowerVR Rogue
+GE8320 (Xiaomi M2006C3MG) that probe reports DXT even though the driver has no
+S3TC at all: the engine asked for `texdb/mobile/mobile.dxt.tmb`, the file was not
+in the cache, and `Load()` dereferenced the null database in
+`TextureDatabaseRuntime::SortEntries` - the SIGSEGV (fault address `0x6f1`) right
+after the loading screen. `libsamp` therefore no longer trusts that probe:
+
+* `TextureDatabaseRuntime::ResolveFormatForDevice()` opens only a family whose
+  `texdb/<db>/<db>.<family>.tmb` really exists on disk (requested family first,
+  then pvr, dxt, etc, unc, 360, ps3),
+* `TextureDatabaseRuntime::IsTextureDatabaseInstalled()` skips a database that
+  was never installed instead of letting `Load()` crash on it,
+* both decisions are appended to `/storage/emulated/0/GS-SAMP/logcat.txt`, so the
+  family the game really opened is verifiable from the diagnostics file,
+* the launcher gate accepts any installed `mobile.<family>.tmb` for the same
+  reason, and only opens the installer when no family is present at all.
 
 ## Building
 
