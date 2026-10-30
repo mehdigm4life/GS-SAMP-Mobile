@@ -320,25 +320,31 @@ public class StorageGateActivity extends AppCompatActivity {
         }
 
         File mobile = new File(texdb, "mobile");
-        if (suffix != null) {
-            File index = new File(mobile, "mobile." + suffix + ".tmb");
-            if (!index.exists()) {
-                logLine("texture database for this GPU is missing: "
-                        + index.getAbsolutePath()
-                        + " renderer=[" + GpuDetector.lastRenderer() + "]");
-                return "texdb/mobile/mobile." + suffix + ".tmb";
-            }
+
+        // The family this GPU should use.
+        if (suffix != null && new File(mobile, "mobile." + suffix + ".tmb").exists()) {
             return null;
         }
 
-        // No GL information: at least require one index of any family.
-        String[] families = {"dxt", "pvr", "etc"};
+        // Any other installed family is good enough: libsamp now resolves the
+        // texture family from the files that are actually on disk
+        // (TextureDatabaseRuntime::ResolveFormatForDevice), so a cache built for
+        // another family still starts instead of dereferencing a null database.
+        String[] families = {suffix, "pvr", "dxt", "etc", "unc", "360", "ps3"};
         for (String family : families) {
-            if (new File(mobile, "mobile." + family + ".tmb").exists()) {
+            if (family != null && new File(mobile, "mobile." + family + ".tmb").exists()) {
+                if (suffix != null && !family.equals(suffix)) {
+                    logLine("texture database " + family + " found while this GPU prefers "
+                            + suffix + " - using the installed one");
+                }
                 return null;
             }
         }
-        return "texdb/mobile/mobile.*.tmb";
+
+        logLine("no texture database installed for this GPU: "
+                + new File(mobile, "mobile." + (suffix == null ? "*" : suffix) + ".tmb").getAbsolutePath()
+                + " renderer=[" + GpuDetector.lastRenderer() + "]");
+        return "texdb/mobile/mobile." + (suffix == null ? "*" : suffix) + ".tmb";
     }
 
     private void appendIfMissing(File root, StringBuilder missing, String entry) {
