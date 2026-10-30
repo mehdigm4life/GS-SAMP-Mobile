@@ -30,6 +30,7 @@
     <string name="cache_btn_cancel">إلغاء</string>
     <string name="cache_btn_retry">إعادة المحاولة</string>
     <string name="cache_btn_play">ابدأ اللعبة</string>
+    <string name="cache_btn_working">جارٍ العمل…</string>
 
     <string name="cache_verify_pending">لم يتم التحقق من الملفات بعد</string>
     <string name="cache_verify_running">جارٍ التحقق من كل ملف…</string>
@@ -44,8 +45,7 @@
     <string name="cache_exit_stay">متابعة التحميل</string>
     <string name="cache_exit_leave">خروج</string>
 
-    <string name="cache_mobile_data_warning">أنت متصل ببيانات الهاتف. حجم ملفات اللعبة كبير، ويُفضّل استخدام شبكة Wi-Fi لتجنّب استهلاك رصيدك. هل تريد المتابعة على بيانات الهاتف؟</string>
-    <string name="cache_mobile_data_continue">متابعة على البيانات</string>
+    <string name="cache_mobile_data_note">أنت على بيانات الهاتف — التحميل سيستهلك من رصيدك، ويمكنك الإيقاف المؤقت في أي وقت.</string>
 
     <string name="cache_failed_title">فشل التحميل</string>
     <string name="cache_retry_hint">تحقّق من اتصال الإنترنت ثم أعد المحاولة. التفاصيل في السجل أدناه.</string>

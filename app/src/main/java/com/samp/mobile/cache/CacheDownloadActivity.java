@@ -1,6 +1,5 @@
 package com.samp.mobile.cache;
 
-import android.app.AlertDialog;
 import android.content.DialogInterface;
 import android.net.ConnectivityManager;
 import android.net.NetworkInfo;
@@ -15,6 +14,7 @@ import android.widget.ProgressBar;
 import android.widget.TextView;
 
 import androidx.annotation.Nullable;
+import androidx.appcompat.app.AlertDialog;
 import androidx.appcompat.app.AppCompatActivity;
 import androidx.core.content.ContextCompat;
 
@@ -52,6 +52,9 @@ public class CacheDownloadActivity extends AppCompatActivity implements CacheMan
     /** Leave a moment to read "all files verified" before the game opens. */
     private static final long AUTO_START_DELAY_MS = 1500L;
 
+    /** If the page is still idle after this long, the pass is started again. */
+    private static final long WATCHDOG_DELAY_MS = 2000L;
+
     /** How many log lines the on-screen pane keeps. */
     private static final int LOG_LINES = 60;
 
@@ -88,10 +91,8 @@ public class CacheDownloadActivity extends AppCompatActivity implements CacheMan
 
     private Button btnToggle;
     private Button btnCancel;
-    private Button btnRetry;
 
     private final List<String> logLines = new ArrayList<>();
-    private boolean startConfirmed;
     private boolean leaving;
     private int lastLoggedPercent = -1;
 
@@ -125,12 +126,53 @@ public class CacheDownloadActivity extends AppCompatActivity implements CacheMan
         // the folder is not even present.
         DiagLog.line("folder exists=" + root.isDirectory());
 
-        startConfirmed = !isOnMobileData();
-        if (startConfirmed) {
-            manager.start();
-        } else {
-            askAboutMobileData();
+        if (isOnMobileData()) {
+            // Inform, never block: the player already asked for the install by
+            // tapping "Install files", so the transfer begins immediately and
+            // the warning goes to the log instead of into a dialog.
+            onLog(getString(R.string.cache_mobile_data_note));
         }
+
+        // Start now, and keep a watchdog running so the page can never sit
+        // idle waiting for a tap.
+        startInstall();
+        handler.postDelayed(startIfStillIdle, WATCHDOG_DELAY_MS);
+    }
+
+    /**
+     * Begins the install pass, once.
+     *
+     * Safe to call from onCreate, onPostResume and the watchdog: the manager
+     * leaves {@code IDLE} synchronously, so every later call is a no-op.
+     */
+    private void startInstall() {
+        if (manager == null || isFinishing()) {
+            return;
+        }
+        if (manager.getStage() != CacheManager.Stage.IDLE) {
+            return;
+        }
+        DiagLog.line("install pass starting");
+        manager.start();
+    }
+
+    private final Runnable startIfStillIdle = new Runnable() {
+        @Override
+        public void run() {
+            if (manager != null && !isFinishing()
+                    && manager.getStage() == CacheManager.Stage.IDLE) {
+                DiagLog.line("watchdog: the pass had not started, starting it now");
+                startInstall();
+            }
+        }
+    };
+
+    @Override
+    protected void onPostResume() {
+        super.onPostResume();
+        // Covers any resume that bypassed onCreate's start (permission round
+        // trip, process kept alive, screen unlocked mid-install).
+        startInstall();
     }
 
     private void bindViews() {
@@ -150,7 +192,6 @@ public class CacheDownloadActivity extends AppCompatActivity implements CacheMan
 
         btnToggle = findViewById(R.id.btn_toggle);
         btnCancel = findViewById(R.id.btn_cancel);
-        btnRetry = findViewById(R.id.btn_retry);
 
         tvLog.setMovementMethod(new ScrollingMovementMethod());
         tvLog.setText("");
@@ -165,13 +206,6 @@ public class CacheDownloadActivity extends AppCompatActivity implements CacheMan
             @Override
             public void onClick(View v) {
                 confirmCancel();
-            }
-        });
-        btnRetry.setOnClickListener(new View.OnClickListener() {
-            @Override
-            public void onClick(View v) {
-                hideRetry();
-                manager.retry();
             }
         });
     }
@@ -324,39 +358,34 @@ public class CacheDownloadActivity extends AppCompatActivity implements CacheMan
             case COMPLETE:
                 setToggle(R.string.cache_btn_play, R.drawable.cache_ic_play, true);
                 btnCancel.setVisibility(View.GONE);
-                hideRetry();
                 break;
 
             case DOWNLOADING:
                 setToggle(R.string.cache_btn_pause, R.drawable.cache_ic_pause, true);
                 btnCancel.setVisibility(View.VISIBLE);
-                hideRetry();
                 break;
 
             case PAUSED:
                 setToggle(R.string.cache_btn_resume, R.drawable.cache_ic_play, true);
                 btnCancel.setVisibility(View.VISIBLE);
-                hideRetry();
                 break;
 
             case CONNECTING:
             case VERIFYING:
-                setToggle(R.string.cache_stage_verifying, R.drawable.cache_ic_download, false);
+                // Short label: it has to fit next to the cancel button.
+                setToggle(R.string.cache_btn_working, R.drawable.cache_ic_download, false);
                 btnCancel.setVisibility(View.VISIBLE);
-                hideRetry();
                 break;
 
             case FAILED:
             case CANCELLED:
                 setToggle(R.string.cache_btn_retry, R.drawable.cache_ic_refresh, true);
                 btnCancel.setVisibility(View.GONE);
-                showRetry();
                 break;
 
             default:
                 setToggle(R.string.cache_btn_start, R.drawable.cache_ic_download, true);
                 btnCancel.setVisibility(View.GONE);
-                hideRetry();
                 break;
         }
     }
@@ -368,13 +397,6 @@ public class CacheDownloadActivity extends AppCompatActivity implements CacheMan
         btnToggle.setAlpha(enabled ? 1f : 0.55f);
     }
 
-    private void showRetry() {
-        btnRetry.setVisibility(View.VISIBLE);
-    }
-
-    private void hideRetry() {
-        btnRetry.setVisibility(View.GONE);
-    }
 
     // ------------------------------------------------------------------
     // Interactions
@@ -399,7 +421,6 @@ public class CacheDownloadActivity extends AppCompatActivity implements CacheMan
         }
         if (stage == CacheManager.Stage.FAILED || stage == CacheManager.Stage.CANCELLED) {
             DiagLog.line("user retried");
-            hideRetry();
             manager.retry();
             return;
         }
@@ -423,28 +444,6 @@ public class CacheDownloadActivity extends AppCompatActivity implements CacheMan
                     }
                 })
                 .setNegativeButton(R.string.cache_exit_stay, null)
-                .show();
-    }
-
-    private void askAboutMobileData() {
-        new AlertDialog.Builder(this)
-                .setTitle(R.string.cache_title)
-                .setMessage(R.string.cache_mobile_data_warning)
-                .setCancelable(false)
-                .setPositiveButton(R.string.cache_mobile_data_continue, new DialogInterface.OnClickListener() {
-                    @Override
-                    public void onClick(DialogInterface dialog, int which) {
-                        startConfirmed = true;
-                        manager.start();
-                    }
-                })
-                .setNegativeButton(R.string.cache_exit_leave, new DialogInterface.OnClickListener() {
-                    @Override
-                    public void onClick(DialogInterface dialog, int which) {
-                        setResult(RESULT_CANCELED);
-                        finish();
-                    }
-                })
                 .show();
     }
 
