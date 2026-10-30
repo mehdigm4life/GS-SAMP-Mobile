@@ -5,22 +5,107 @@
 #include "vendor/SimpleIni/SimpleIni.h"
 #include "game/game.h"
 
+#include <sys/stat.h>
+#include <cstdio>
+#include <cstring>
+#include <string>
+
 extern CGame *pGame;
+
+/**
+ * Creates <storage>/SAMP/settings.ini with documented defaults when it does not
+ * exist yet, so the player has something to edit instead of a file that only
+ * ever appears if they guess the format.
+ *
+ * Every value written here matches the fallback used by the reader below, so
+ * creating the file never changes behaviour - it only documents it.
+ *
+ * Failures are ignored on purpose: the defaults are already in effect.
+ */
+static void WriteDefaultSettingsFile(const char* path)
+{
+	if (path == nullptr || *path == '\0') return;
+
+	FILE* existing = fopen(path, "r");
+	if (existing != nullptr)
+	{
+		fclose(existing);
+		return;
+	}
+
+	// Make sure <storage>/SAMP exists.
+	std::string dir(path);
+	size_t slash = dir.find_last_of('/');
+	if (slash != std::string::npos)
+	{
+		std::string folder = dir.substr(0, slash);
+		mkdir(folder.c_str(), 0770);
+	}
+
+	FILE* fp = fopen(path, "w");
+	if (fp == nullptr)
+	{
+		FLog("Could not create %s (storage permission?)", path);
+		return;
+	}
+
+	fprintf(fp,
+		"; ------------------------------------------------------------------\n"
+		"; SA-MP Mobile client settings\n"
+		"; Created automatically because the file was missing.\n"
+		"; Remove it to fall back to the built-in defaults again.\n"
+		"; ------------------------------------------------------------------\n"
+		"\n"
+		"[client]\n"
+		"; Nickname shown in game. Uncomment and set it to pick a fixed name;\n"
+		"; when the key is absent the client generates a random one.\n"
+		";name=\n"
+		"; Server to connect to automatically.\n"
+		"host=127.0.0.1\n"
+		"port=7777\n"
+		"password=\n"
+		"version=0.3.7\n"
+		"autoaim=false\n"
+		"\n"
+		"[debug]\n"
+		"debug=false\n"
+		"online=true\n"
+		"\n"
+		"[gui]\n"
+		"Font=arial.ttf\n"
+		"FontSize=30\n"
+		"FontOutline=2\n"
+		"androidkeyboard=false\n"
+		"FPSLimit=60\n"
+		"VoiceChatEnable=true\n"
+		);
+
+	fclose(fp);
+
+	FLog("Created default settings file: %s", path);
+}
 
 CSettings::CSettings()
 {
 	FLog("Loading settings..");	
 
 	char buff[0x7F];
-	sprintf(buff, "%sSAMP/settings.ini", g_pszStorage);
+	snprintf(buff, sizeof(buff), "%sSAMP/settings.ini", g_pszStorage);
 
 	INIReader reader(buff);
 
+	// A missing settings.ini is NOT a fatal condition: every value below has a
+	// sensible default, so the client can start with those. This used to call
+	// std::terminate(), which raised SIGABRT and killed the app on the first
+	// launch after a clean install (before any settings file existed).
 	if(reader.ParseError() < 0)
 	{
-		FLog("Error: can't load %s", buff);
-		std::terminate();
-		return;
+		FLog("Warning: %s not found - continuing with built-in defaults", buff);
+		WriteDefaultSettingsFile(buff);
+	}
+	else
+	{
+		FLog("Settings file: %s", buff);
 	}
 
 	// client

@@ -100,6 +100,37 @@ jobs:
           restore-keys: |
             gradle-${{ runner.os }}-
 
+      # AGP auto-generates ~/.android/debug.keystore on a machine that does not
+      # have one. Runners are fresh VMs, so without this every build would be
+      # signed by a DIFFERENT key, and the user would have to uninstall the old
+      # app before every update. One keystore is cached and reused forever.
+      #
+      # The restore must run BEFORE the create step, otherwise a freshly
+      # generated key would shadow the cached one.
+      - name: Cache debug keystore
+        uses: actions/cache@v4
+        with:
+          path: ~/.android/debug.keystore
+          key: android-debug-keystore-v1
+
+      - name: Create debug keystore if missing
+        run: |
+          set -euo pipefail
+          KEYSTORE="$HOME/.android/debug.keystore"
+          mkdir -p "$HOME/.android"
+          if [ -f "$KEYSTORE" ]; then
+            echo "using cached debug keystore"
+          else
+            echo "creating a fresh debug keystore"
+            keytool -genkeypair -v \
+              -keystore "$KEYSTORE" \
+              -storepass android -keypass android \
+              -alias androiddebugkey \
+              -keyalg RSA -keysize 2048 -validity 10000 \
+              -dname "CN=Android Debug,O=Android,C=US"
+          fi
+          keytool -list -keystore "$KEYSTORE" -storepass android | tail -3
+
       - name: Show environment
         run: |
           java -version
