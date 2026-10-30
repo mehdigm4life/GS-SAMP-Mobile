@@ -52,7 +52,11 @@ target_link_libraries(samp log EGL GLESv3 opus shadowhook::shadowhook ${CMAKE_CU
 
 # Set compilation flags
 #
-set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -w -s -g -fvisibility=hidden -pthread -Wall -O3 -fexceptions")
+# No -s here. -s strips the symbol table at link time, so every crash offset in
+# libsamp.so became unreadable - the packaged library is stripped by AGP anyway,
+# which means dropping -s costs nothing in the APK and keeps the unstripped copy
+# (and the system tombstone) able to name a function.
+set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -w -g -fvisibility=hidden -pthread -Wall -O3 -fexceptions")
 
 # With -fvisibility=hidden every symbol that is not explicitly exported is kept
 # out of .dynsym. Debug builds are far easier to reason about (and to diagnose
