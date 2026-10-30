@@ -70,6 +70,12 @@ android {
     packagingOptions {
         jniLibs {
             excludes += ['META-INF/*']
+            // AGP strips native libraries before packaging them, and a stripped
+            // libsamp.so cannot answer the only question a crash asks: which
+            // function at which offset. The symbol table costs about a megabyte
+            // and turns "libsamp.so + 0x1b9bfc" into a name - and the system's
+            // own tombstone shows one too. Kept for this library only.
+            keepDebugSymbols += '**/libsamp.so'
         }
         resources {
             excludes += ['META-INF/*']
