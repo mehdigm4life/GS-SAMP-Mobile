@@ -135,6 +135,32 @@ jobs:
 
       # The raw Actions log is only reachable from the GitHub UI, so mirror the
       # failure tail into an issue where any API client can read it.
+      # Hard gate: the whole native bootstrap lives in libsamp.so's JNI_OnLoad.
+      # If it is not exported ART never calls it, the game never initialises and
+      # the app quits right after launch. Never publish such an APK again.
+      - name: Verify native bootstrap (JNI_OnLoad exported)
+        run: |
+          set -euo pipefail
+          APK=$(find app/build/outputs/apk/debug -name '*.apk' | head -1)
+          tmp=$(mktemp -d)
+          unzip -o -q "$APK" 'lib/*/libsamp.so' -d "$tmp"
+          status=0
+          echo '### Native bootstrap check' > verify.md
+          echo '```' >> verify.md
+          for so in "$tmp"/lib/*/libsamp.so; do
+            abi=$(basename "$(dirname "$so")")
+            exported=$(readelf --dyn-syms -W "$so" | awk '{print $8}' | grep -cx 'JNI_OnLoad' || true)
+            if [ "$exported" -ge 1 ]; then
+              echo "OK   $abi: JNI_OnLoad exported" | tee -a verify.md
+            else
+              echo "FAIL $abi: JNI_OnLoad NOT exported" | tee -a verify.md
+              status=1
+            fi
+          done
+          echo '```' >> verify.md
+          cat verify.md >> "$GITHUB_STEP_SUMMARY"
+          exit $status
+
       - name: Publish failure log as an issue
         if: failure()
         env:
@@ -168,7 +194,7 @@ jobs:
             echo '### APK verification'
             echo ''
             echo '```'
-            "$AAPT2" dump badging "$APK" 2>/dev/null | grep -E "^package|^sdkVersion|^targetSdkVersion|^native-code|^application-label" || true
+            "$AAPT2" dump badging "$APK" 2>/dev/null | grep -E "^package|^sdkVersion|^targetSdkVersion|^native-code|^launchable-activity" || true
             echo ''
             echo '--- native libraries ---'
             unzip -l "$APK" | grep -E "lib/[^/]+/[^/]+\.so" | awk '{printf "%10s  %s\n", $1, $4}' || true
