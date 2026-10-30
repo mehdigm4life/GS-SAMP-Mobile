@@ -447,25 +447,44 @@ jobs:
 
       - name: Verify the crash reporter and stage tracking are linked
         run: |
-          set -euo pipefail
+          set -uo pipefail
           APK=$(find app/build/outputs/apk/debug -name '*.apk' | head -1)
           tmp=$(mktemp -d)
-          unzip -o -q "$APK" 'lib/arm64-v8a/libsamp.so' -d "$tmp"
+          unzip -o -q "$APK" 'lib/arm64-v8a/libsamp.so' -d "$tmp" || true
+          SO="$tmp/lib/arm64-v8a/libsamp.so"
+
+          if [ ! -f "$SO" ]; then
+            echo "::error::lib/arm64-v8a/libsamp.so is missing from the APK"
+            exit 1
+          fi
+          echo "::notice::so=$(stat -c%s "$SO") bytes"
 
           # A start that dies must never be silent again: the async-signal-safe
           # reporter and the stage file are the only way to name such a death.
+          # Both the raw bytes and the strings view are counted, and every result
+          # is published as an annotation so the numbers are readable even when
+          # the job log is not reachable.
           status=0
           { echo '### crash reporter'; echo '```'; } > crash.md
-          for needle in \
-            "=== CRASH signal=" \
-            "STAGE %s | rss=%ldkB peak=%ldkB free=%ldkB" \
-            "previous session ended at stage: %s" \
-            "/storage/emulated/0/GS-SAMP/crash.txt" \
-            "/storage/emulated/0/GS-SAMP/stage.txt" ; do
-            count=$(strings -a "$tmp/lib/arm64-v8a/libsamp.so" | grep -c -F -- "$needle" || true)
-            echo "$count  $needle" | tee -a crash.md
-            [ "$count" -ge 1 ] || status=1
-          done
+          while IFS= read -r needle; do
+            [ -z "$needle" ] && continue
+            raw=$(grep -a -c -F -- "$needle" "$SO" || true)
+            str=$(strings -a "$SO" | grep -c -F -- "$needle" || true)
+            echo "::notice::needle raw=${raw:-?} strings=${str:-?} :: $needle"
+            echo "raw=${raw:-?} strings=${str:-?}  $needle" | tee -a crash.md
+            if [ "${raw:-0}" -lt 1 ] && [ "${str:-0}" -lt 1 ]; then
+              status=1
+              echo "::warning::missing from libsamp.so: $needle"
+              strings -a "$SO" | grep -i -E 'CRASH|STAGE|crash\.txt|stage\.txt' | head -6 \
+                | while IFS= read -r line; do echo "::warning::found instead: $line"; done
+            fi
+          done <<'NEEDLES'
+          === CRASH signal=
+          STAGE %s | rss=%ldkB peak=%ldkB free=%ldkB
+          previous session ended at stage: %s
+          /storage/emulated/0/GS-SAMP/crash.txt
+          /storage/emulated/0/GS-SAMP/stage.txt
+          NEEDLES
           echo '```' >> crash.md
           cat crash.md
           cat crash.md >> "$GITHUB_STEP_SUMMARY"

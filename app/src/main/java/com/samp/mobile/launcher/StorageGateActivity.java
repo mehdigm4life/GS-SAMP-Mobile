@@ -1,6 +1,7 @@
 package com.samp.mobile.launcher;
 
 import android.Manifest;
+import android.app.ActivityManager;
 import android.app.AlertDialog;
 import android.content.DialogInterface;
 import android.content.Intent;
@@ -78,6 +79,9 @@ public class StorageGateActivity extends AppCompatActivity {
      * Android/data so it can be opened by any file manager.
      */
     private static final String LOG_DIR = "/storage/emulated/0/GS-SAMP";
+
+    /** Below this the kernel starts killing the largest process; the game is it. */
+    private static final long MEMORY_HEADROOM_BYTES = 350L * 1024 * 1024;
 
     private static final String LOG_FILE = "logcat.txt";
 
@@ -567,7 +571,7 @@ public class StorageGateActivity extends AppCompatActivity {
                 logLine("previous native session: no stage recorded");
                 return;
             }
-            String value = readSmallText(stage).trim();
+            String value = readSmallText(stage).trim().replace("\r", "").replace("\n", " | ");
             logLine("previous native session ended at stage: "
                     + (value.isEmpty() ? "(empty)" : value));
         } catch (Throwable t) {
@@ -616,6 +620,50 @@ public class StorageGateActivity extends AppCompatActivity {
                     + (rt.maxMemory() / (1024 * 1024)) + " MB max");
         } catch (Throwable t) {
             logLine("memory cleanup failed: " + t);
+        }
+
+        waitForMemoryHeadroom();
+    }
+
+    /**
+     * The game maps several hundred megabytes of textures as soon as the world
+     * starts streaming. When the device is already tight, the kernel answers
+     * that with a SIGKILL, and a kill leaves no crash report at all - exactly
+     * the "the second start just closed" that no log could explain.
+     *
+     * So the launch is not started until the system reports a usable amount of
+     * free memory: what can be dropped is dropped, and the check is repeated a
+     * few times before giving the game its best chance.
+     */
+    private void waitForMemoryHeadroom() {
+        try {
+            ActivityManager am = (ActivityManager) getSystemService(ACTIVITY_SERVICE);
+            if (am == null) {
+                logLine("memory: ActivityManager unavailable, skipping the headroom check");
+                return;
+            }
+            ActivityManager.MemoryInfo info = new ActivityManager.MemoryInfo();
+            for (int attempt = 1; attempt <= 3; attempt++) {
+                am.getMemoryInfo(info);
+                logLine("memory: " + (info.availMem / (1024 * 1024)) + " MB available, lowMemory="
+                        + info.lowMemory + " (attempt " + attempt + "/3)");
+                if (info.availMem >= MEMORY_HEADROOM_BYTES) {
+                    return;
+                }
+                System.gc();
+                System.runFinalization();
+                try {
+                    Thread.sleep(400L * attempt);
+                } catch (InterruptedException interrupted) {
+                    Thread.currentThread().interrupt();
+                    return;
+                }
+            }
+            am.getMemoryInfo(info);
+            logLine("memory: still only " + (info.availMem / (1024 * 1024))
+                    + " MB available, starting anyway");
+        } catch (Throwable t) {
+            logLine("memory headroom check failed: " + t);
         }
     }
 

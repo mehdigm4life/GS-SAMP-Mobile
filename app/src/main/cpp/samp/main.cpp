@@ -225,6 +225,32 @@ static char* SsHex(char* out, uintptr_t v)
 	return out;
 }
 
+static char* SsDec(char* out, long v)
+{
+	char tmp[24];
+	int n = 0;
+
+	if (v < 0)
+	{
+		*out++ = '-';
+		v = -v;
+	}
+	if (v == 0)
+	{
+		*out++ = '0';
+		return out;
+	}
+	while (v)
+	{
+		tmp[n++] = (char)('0' + (v % 10));
+		v /= 10;
+	}
+	while (n)
+		*out++ = tmp[--n];
+
+	return out;
+}
+
 static void SsWriteAll(int fd, const char* buf, size_t len)
 {
 	while (len)
@@ -335,10 +361,16 @@ void GameStage(const char* name)
 
 	g_currentStage = name;
 
+	// The second line is what tells a low-memory kill apart from a crash when
+	// this file is read on the next start: a healthy start never reaches the
+	// scene with only a few MB of MemAvailable left.
 	FILE* f = fopen(kStagePath, "w");
 	if (f)
 	{
-		fprintf(f, "%s\n", name);
+		fprintf(f, "%s\nfree=%ldkB rss=%ldkB\n",
+		        name,
+		        ReadProcKb("/proc/meminfo", "MemAvailable"),
+		        ReadProcKb("/proc/self/status", "VmRSS"));
 		fclose(f);
 	}
 
@@ -350,6 +382,13 @@ void GameStage(const char* name)
 }
 
 // Called once per process start: reports how the previous run ended.
+//
+// There are three ways a session can end and only one of them used to leave a
+// trace. A fatal signal appends to crash.txt. A plain exit() is caught by the
+// atexit reporter below and appends there too. A SIGKILL - the low-memory
+// killer, or the user removing the task - cannot be caught at all, so it is
+// recognised here instead: stage.txt is newer than crash.txt, which means the
+// process went away between one stage and the next without reporting anything.
 static void LogPreviousStage()
 {
 	mkdir("/storage/emulated/0/GS-SAMP", 0770);
@@ -362,18 +401,75 @@ static void LogPreviousStage()
 	}
 
 	char line[128] = { 0 };
+	char detail[128] = { 0 };
 	const bool ok = fgets(line, sizeof(line), f) != nullptr;
+	if (ok)
+		fgets(detail, sizeof(detail), f);
 	fclose(f);
 	if (!ok)
 		return;
 
 	for (char* c = line; *c; ++c)
+		if (*c == '\n' || *c == '\r') { *c = 0; break; }
+	for (char* c = detail; *c; ++c)
+		if (*c == '\n' || *c == '\r') { *c = 0; break; }
+
+	const char* last = line[0] ? line : "(empty)";
+	FLog("previous session ended at stage: %s (%s)", last, detail[0] ? detail : "no memory data");
+
+	if (strcmp(last, "clean exit") == 0)
 	{
-		if (*c == '\n' || *c == '\r')
-			*c = 0;
+		FLog("previous session ended cleanly");
+		return;
 	}
 
-	FLog("previous session ended at stage: %s", line[0] ? line : "(empty)");
+	// One-second mtime granularity: only treat the stage as newer when it is
+	// strictly newer, so a report written in the same second is never ignored.
+	struct stat stageStat = { 0 };
+	struct stat crashStat = { 0 };
+	const bool haveStage = stat(kStagePath, &stageStat) == 0;
+	const bool haveCrash = stat(kCrashLogPath, &crashStat) == 0;
+
+	if (!haveCrash || (haveStage && stageStat.st_mtime > crashStat.st_mtime))
+	{
+		FLog("previous session was killed without reporting at stage: %s - "
+		     "the process was killed by the system (low memory) or removed, "
+		     "not crashed; %s is the memory picture of that moment",
+		     last, detail[0] ? detail : "stage.txt");
+	}
+	else
+	{
+		FLog("previous session left a crash report, see %s", kCrashLogPath);
+	}
+}
+
+// exit() is the third way a start can end without a trace: the engine's own
+// shutdown path calls it directly, and the process simply disappears. atexit()
+// runs before that final teardown and uses nothing but open()/write(), so the
+// report survives even when the rest of the process is already falling apart.
+// A genuine clean exit is skipped, so the file only ever names real surprises.
+static void ReportExitAtExit()
+{
+	if (g_currentStage && strcmp(g_currentStage, "clean exit") == 0)
+		return;
+
+	char buf[256];
+	char* p = buf;
+	p = SsStr(p, "\n=== EXIT atexit stage=");
+	p = SsStr(p, g_currentStage ? g_currentStage : "(none)");
+	p = SsStr(p, " rss=");
+	p = SsDec(p, ReadProcKb("/proc/self/status", "VmRSS"));
+	p = SsStr(p, "kB free=");
+	p = SsDec(p, ReadProcKb("/proc/meminfo", "MemAvailable"));
+	p = SsStr(p, "kB\n");
+
+	const int fd = open(kCrashLogPath, O_WRONLY | O_CREAT | O_APPEND, 0660);
+	if (fd >= 0)
+	{
+		SsWriteAll(fd, buf, (size_t)(p - buf));
+		fsync(fd);
+		close(fd);
+	}
 }
 
 // All four handlers go through the async-signal-safe reporter first, then let
@@ -694,6 +790,9 @@ extern "C" JNIEXPORT jint JNICALL JNI_OnLoad(JavaVM* vm, void* reserved)
 	// Report where the previous run stopped before this one goes any further.
 	LogPreviousStage();
 	GameStage("libsamp loaded");
+
+	// Registered after the stage is known so a plain exit() names a stage too.
+	atexit(ReportExitAtExit);
 
 	return JNI_VERSION_1_6;
 }
