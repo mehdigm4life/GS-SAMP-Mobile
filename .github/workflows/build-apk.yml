@@ -375,6 +375,41 @@ jobs:
           cat installer.md >> "$GITHUB_STEP_SUMMARY"
           exit $status
 
+      - name: Verify the texdb family fix is inside libsamp.so
+        run: |
+          set -euo pipefail
+          APK=$(find app/build/outputs/apk/debug -name '*.apk' | head -1)
+          tmp=$(mktemp -d)
+          unzip -o -q "$APK" 'lib/*/libsamp.so' -d "$tmp"
+
+          # The game used to resolve DF_Default from its own GL flags and ask for
+          # mobile.dxt.tmb on a driver without S3TC (SIGSEGV 0x6f1 in
+          # TextureDatabaseRuntime::SortEntries). These log lines only exist when
+          # the filesystem-verified resolver is really linked into libsamp.so.
+          status=0
+          { echo '### texdb family resolver'; echo '```'; } > texdb.md
+          for abi in arm64-v8a armeabi-v7a; do
+            so="$tmp/lib/$abi/libsamp.so"
+            if [ ! -f "$so" ]; then
+              echo "missing  lib/$abi/libsamp.so" | tee -a texdb.md
+              status=1
+              continue
+            fi
+            for needle in \
+              "texdb %s: opening .%s (installed on disk)" \
+              "texdb %s: requested .%s is installed" \
+              "texdb %s: not installed, skipping the engine load" \
+              "texdb %s: no .tmb found for any family" ; do
+              count=$(strings -a "$so" | grep -c -F -- "$needle" || true)
+              echo "$count  $abi  $needle" | tee -a texdb.md
+              [ "$count" -ge 1 ] || status=1
+            done
+          done
+          echo '```' >> texdb.md
+          cat texdb.md
+          cat texdb.md >> "$GITHUB_STEP_SUMMARY"
+          exit $status
+
       - name: Inspect APK
         if: success()
         run: |
