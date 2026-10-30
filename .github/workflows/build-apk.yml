@@ -339,6 +339,42 @@ jobs:
           cat pathcheck.md >> "$GITHUB_STEP_SUMMARY"
           exit $status
 
+      # The cache installer is the feature this build exists for, so prove it is
+      # really inside the published binary instead of trusting that the compile
+      # step ran: the classes must be present in classes*.dex and the project
+      # endpoint must be a live string constant.
+      - name: Verify cache installer is inside the APK
+        run: |
+          set -euo pipefail
+          APK=$(find app/build/outputs/apk/debug -name '*.apk' | head -1)
+          tmp=$(mktemp -d)
+          unzip -o -q "$APK" 'classes*.dex' -d "$tmp"
+
+          status=0
+          { echo '### Cache installer check'; echo '```'; } > installer.md
+          for needle in \
+            "Lcom/samp/mobile/cache/CacheDownloadActivity;" \
+            "Lcom/samp/mobile/cache/CacheManager;" \
+            "Lcom/samp/mobile/cache/DownloadEngine;" \
+            "Lcom/samp/mobile/cache/FileVerifier;" \
+            "Lcom/samp/mobile/cache/ManifestParser;" \
+            "Lcom/samp/mobile/cache/GpuDetector;" \
+            "samp-mobile.shop/client_config.json" \
+            "bytes=" ; do
+            count=$(strings -a "$tmp"/classes*.dex | grep -c -F -- "$needle" || true)
+            echo "$count  $needle" | tee -a installer.md
+            [ "$count" -ge 1 ] || status=1
+          done
+          # The external Drive link must be gone for good.
+          legacy=$(strings -a "$tmp"/classes*.dex | grep -c -F 'drive.google.com/file/d/1JW2Rsc' || true)
+          echo "$legacy  legacy Drive cache link (expected 0)" | tee -a installer.md
+          [ "$legacy" -eq 0 ] || status=1
+          echo '```' >> installer.md
+
+          cat installer.md
+          cat installer.md >> "$GITHUB_STEP_SUMMARY"
+          exit $status
+
       - name: Inspect APK
         if: success()
         run: |
@@ -390,6 +426,8 @@ jobs:
             [ -f pathcheck.md ] && cat pathcheck.md || true
             echo ''
             [ -f tests.md ] && cat tests.md || true
+            echo ''
+            [ -f installer.md ] && cat installer.md || true
           } > release-notes.md
 
           TAG="build-${GITHUB_RUN_NUMBER}"
