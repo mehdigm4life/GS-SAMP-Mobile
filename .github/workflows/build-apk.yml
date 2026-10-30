@@ -155,6 +155,32 @@ jobs:
             --title "Build failure (run ${{ github.run_number }})" \
             --body-file /tmp/body.md || true
 
+      - name: Inspect APK
+        if: success()
+        run: |
+          set -euo pipefail
+          APK=$(find app/build/outputs/apk/debug -name '*.apk' | head -1)
+          AAPT2="$ANDROID_HOME/build-tools/34.0.0/aapt2"
+          if [ ! -x "$AAPT2" ]; then
+            AAPT2=$(find "$ANDROID_HOME/build-tools" -name aapt2 -type f | sort -r | head -1)
+          fi
+          {
+            echo '### APK verification'
+            echo ''
+            echo '```'
+            "$AAPT2" dump badging "$APK" 2>/dev/null | grep -E "^package|^sdkVersion|^targetSdkVersion|^native-code|^application-label" || true
+            echo ''
+            echo '--- native libraries ---'
+            unzip -l "$APK" | grep -E "lib/[^/]+/[^/]+\.so" | awk '{printf "%10s  %s\n", $1, $4}' || true
+            echo ''
+            echo '--- signature files ---'
+            unzip -l "$APK" | grep -E "META-INF/(CERT|.*\.RSA|.*\.SF)" | awk '{print $4}' || echo "(v2/v3 signing only)"
+            echo '--- size ---'
+            du -h "$APK"
+            echo '```'
+          } | tee apk-info.md
+          { echo '### APK verification'; echo '```'; cat apk-info.md; echo '```'; } >> "$GITHUB_STEP_SUMMARY"
+
       # Publishing the APK as a release asset gives a stable, clickable
       # download URL instead of the ephemeral Actions artifact zip.
       - name: Publish release
@@ -165,18 +191,23 @@ jobs:
           set -euo pipefail
           APK=$(find app/build/outputs/apk/debug -name '*.apk' | head -1)
           if [ -z "$APK" ]; then echo "::error::no apk produced"; exit 1; fi
-          echo "APK: $APK ($(du -h "$APK" | cut -f1))"
+
+          {
+            echo "Automated build of commit ${GITHUB_SHA:0:7}."
+            echo ''
+            echo '* ABIs: armeabi-v7a + arm64-v8a'
+            echo '* Signed with the standard Android debug key (installable, not for Play Store)'
+            echo '* Built by GitHub Actions'
+            echo ''
+            cat apk-info.md
+          } > release-notes.md
 
           TAG="build-${GITHUB_RUN_NUMBER}"
           gh release create "$TAG" "$APK#app-debug.apk" \
             --repo "$GITHUB_REPOSITORY" \
             --target "$GITHUB_SHA" \
             --title "SA-MP Mobile 2.10 - build ${GITHUB_RUN_NUMBER}" \
-            --notes "Automated debug build of commit ${GITHUB_SHA:0:7}.
-
-          * ABIs: armeabi-v7a + arm64-v8a
-          * Signed with the standard Android debug key (installable, not for Play Store)
-          * Built by GitHub Actions, no local toolchain required"
+            --notes-file release-notes.md
 
       - name: Collect build report
         if: always()
