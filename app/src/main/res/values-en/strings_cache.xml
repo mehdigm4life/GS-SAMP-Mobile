@@ -1,0 +1,55 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="cache_title">Install game data</string>
+    <string name="cache_subtitle">Download and verify the official GTA files</string>
+
+    <string name="cache_percent">0%</string>
+    <string name="cache_percent_format">%1$d%%</string>
+
+    <string name="cache_stage_idle">Ready</string>
+    <string name="cache_stage_connecting">Contacting the server…</string>
+    <string name="cache_stage_verifying">Verifying files…</string>
+    <string name="cache_stage_downloading">Downloading…</string>
+    <string name="cache_stage_paused">Download paused</string>
+    <string name="cache_stage_complete">Download and verification complete</string>
+    <string name="cache_stage_failed">Could not finish</string>
+    <string name="cache_stage_cancelled">Cancelled</string>
+
+    <string name="cache_label_speed">Speed</string>
+    <string name="cache_label_eta">Time left</string>
+    <string name="cache_label_downloaded">Downloaded</string>
+    <string name="cache_label_files">Files</string>
+    <string name="cache_value_unknown">—</string>
+
+    <string name="cache_btn_start">Start download</string>
+    <string name="cache_btn_pause">Pause</string>
+    <string name="cache_btn_resume">Resume</string>
+    <string name="cache_btn_cancel">Cancel</string>
+    <string name="cache_btn_retry">Retry</string>
+    <string name="cache_btn_play">Start game</string>
+
+    <string name="cache_verify_pending">Files not verified yet</string>
+    <string name="cache_verify_running">Verifying every file…</string>
+    <string name="cache_verify_ok">All files verified</string>
+    <string name="cache_verify_problem">Missing or corrupted files</string>
+
+    <string name="cache_log_title">Diagnostics</string>
+    <string name="cache_log_hint">Everything that happens during the download shows up here.</string>
+
+    <string name="cache_exit_title">Cancel the download?</string>
+    <string name="cache_exit_message">The game cannot start until every file is downloaded and verified. Leave anyway?</string>
+    <string name="cache_exit_stay">Keep downloading</string>
+    <string name="cache_exit_leave">Leave</string>
+
+    <string name="cache_mobile_data_warning">You are on mobile data. The game files are large, so Wi\u2011Fi is recommended to avoid using your data allowance. Continue on mobile data anyway?</string>
+    <string name="cache_mobile_data_continue">Continue on data</string>
+
+    <string name="cache_failed_title">Download failed</string>
+    <string name="cache_retry_hint">Check the internet connection and retry. Details are in the log below.</string>
+
+    <string name="gate_missing_title">Game data is incomplete</string>
+    <string name="gate_missing_message">Storage access is granted, but the game cache is missing files.\n\nMissing: %1$s\n\n%2$s must contain at least:\n  data/\n  models/\n  TEXT/AMERICAN.GXT\n  SAMP/\n\nWithout them the game dies at startup (SIGSEGV inside OS_FileRead).\n\nTap \"Install files\" to download them inside the app and verify every file before the game starts.\n\nLog: %3$s</string>
+    <string name="gate_install">Install files</string>
+    <string name="gate_recheck">Re-check</string>
+    <string name="gate_exit">Exit</string>
+</resources>

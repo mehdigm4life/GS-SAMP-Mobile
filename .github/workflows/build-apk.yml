@@ -158,6 +158,49 @@ jobs:
           } | tee probe.log
           { echo '### Dependency probe'; echo '```'; cat probe.log; echo '```'; } >> "$GITHUB_STEP_SUMMARY"
 
+      # The cache downloader is the part of this app that can silently hand the
+      # game a broken cache, so its behaviour (resume with HTTP Range, restart
+      # when the server ignores it, pause/resume/cancel, checksum detection) is
+      # covered by JVM unit tests against a local HTTP server. They must pass
+      # before an APK is produced.
+      - name: Run unit tests
+        run: |
+          chmod +x gradlew
+          set -o pipefail
+          ./gradlew --no-daemon --stacktrace :app:testDebugUnitTest 2>&1 | tee test.log
+
+      - name: Summarise unit tests
+        if: always()
+        run: |
+          python3 - <<'PYEOF'
+          import glob, xml.etree.ElementTree as ET, os
+
+          rows = []
+          total = failures = errors = skipped = 0
+          for path in sorted(glob.glob('app/build/test-results/testDebugUnitTest/*.xml')):
+              try:
+                  root = ET.parse(path).getroot()
+              except Exception as exc:
+                  rows.append('| %s | unreadable: %s |' % (os.path.basename(path), exc))
+                  continue
+              t = int(root.get('tests', 0))
+              f = int(root.get('failures', 0))
+              e = int(root.get('errors', 0))
+              s = int(root.get('skipped', 0))
+              total += t; failures += f; errors += e; skipped += s
+              rows.append('| %s | %d | %d | %d |' % (root.get('name'), t, f, e))
+
+          lines = ['### Unit tests', '', '| suite | tests | failures | errors |',
+                   '| --- | --- | --- | --- |']
+          lines += rows or ['| (no results) | 0 | 0 | 0 |']
+          lines += ['', '**%d tests, %d failures, %d errors, %d skipped**'
+                    % (total, failures, errors, skipped)]
+          report = '\n'.join(lines)
+          print(report)
+          open('tests.md', 'w').write(report)
+          PYEOF
+          cat tests.md >> "$GITHUB_STEP_SUMMARY"
+
       - name: Build debug APK
         run: |
           chmod +x gradlew
@@ -208,6 +251,7 @@ jobs:
             echo 'Gradle build failed.'
             echo ''
             if [ -f probe.log ]; then echo 'Probe:'; echo '```'; cat probe.log; echo '```'; echo ''; fi
+            if [ -f test.log ]; then echo 'Unit tests:'; echo '```'; tail -c 15000 test.log; echo '```'; echo ''; fi
             if [ ! -f build.log ]; then echo 'build.log missing'; exit 0; fi
             echo 'Tail of the log:'
             echo ''
@@ -301,6 +345,8 @@ jobs:
             [ -f verify.md ] && cat verify.md || true
             echo ''
             [ -f pathcheck.md ] && cat pathcheck.md || true
+            echo ''
+            [ -f tests.md ] && cat tests.md || true
           } > release-notes.md
 
           TAG="build-${GITHUB_RUN_NUMBER}"

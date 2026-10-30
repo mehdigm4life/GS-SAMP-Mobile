@@ -1,0 +1,58 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Text for the in-app cache downloader.
+     The default locale is Arabic because that is the audience of this build;
+     values-en/strings_cache.xml holds the English wording. -->
+<resources>
+    <string name="cache_title">تثبيت ملفات اللعبة</string>
+    <string name="cache_subtitle">تحميل والتحقق من ملفات GTA الرسمية</string>
+
+    <string name="cache_percent">0%</string>
+    <string name="cache_percent_format">%1$d%%</string>
+
+    <string name="cache_stage_idle">جاهز للبدء</string>
+    <string name="cache_stage_connecting">جارٍ الاتصال بالخادم…</string>
+    <string name="cache_stage_verifying">جارٍ التحقق من الملفات…</string>
+    <string name="cache_stage_downloading">جارٍ التحميل…</string>
+    <string name="cache_stage_paused">التحميل متوقف مؤقتًا</string>
+    <string name="cache_stage_complete">اكتمل التحميل والتحقق</string>
+    <string name="cache_stage_failed">تعذّر إكمال العملية</string>
+    <string name="cache_stage_cancelled">تم الإلغاء</string>
+
+    <string name="cache_label_speed">السرعة</string>
+    <string name="cache_label_eta">الوقت المتبقي</string>
+    <string name="cache_label_downloaded">تم تحميله</string>
+    <string name="cache_label_files">الملفات</string>
+    <string name="cache_value_unknown">—</string>
+
+    <string name="cache_btn_start">بدء التحميل</string>
+    <string name="cache_btn_pause">إيقاف مؤقت</string>
+    <string name="cache_btn_resume">استئناف</string>
+    <string name="cache_btn_cancel">إلغاء</string>
+    <string name="cache_btn_retry">إعادة المحاولة</string>
+    <string name="cache_btn_play">ابدأ اللعبة</string>
+
+    <string name="cache_verify_pending">لم يتم التحقق من الملفات بعد</string>
+    <string name="cache_verify_running">جارٍ التحقق من كل ملف…</string>
+    <string name="cache_verify_ok">تم التحقق من جميع الملفات بنجاح</string>
+    <string name="cache_verify_problem">ملفات ناقصة أو تالفة</string>
+
+    <string name="cache_log_title">سجل التشخيص</string>
+    <string name="cache_log_hint">سيظهر هنا كل ما يحدث أثناء التحميل.</string>
+
+    <string name="cache_exit_title">إلغاء التحميل؟</string>
+    <string name="cache_exit_message">لن تبدأ اللعبة قبل اكتمال الملفات والتحقق منها. هل تريد الخروج الآن؟</string>
+    <string name="cache_exit_stay">متابعة التحميل</string>
+    <string name="cache_exit_leave">خروج</string>
+
+    <string name="cache_mobile_data_warning">أنت متصل ببيانات الهاتف. حجم ملفات اللعبة كبير، ويُفضّل استخدام شبكة Wi-Fi لتجنّب استهلاك رصيدك. هل تريد المتابعة على بيانات الهاتف؟</string>
+    <string name="cache_mobile_data_continue">متابعة على البيانات</string>
+
+    <string name="cache_failed_title">فشل التحميل</string>
+    <string name="cache_retry_hint">تحقّق من اتصال الإنترنت ثم أعد المحاولة. التفاصيل في السجل أدناه.</string>
+
+    <string name="gate_missing_title">ملفات اللعبة غير مكتملة</string>
+    <string name="gate_missing_message">صلاحية التخزين ممنوحة، لكن ملفات اللعبة ناقصة.\n\nالمفقود: %1$s\n\nيجب أن يحتوي المجلد %2$s على الأقل على:\n  data/\n  models/\n  TEXT/AMERICAN.GXT\n  SAMP/\n\nبدون هذه الملفات تنهار اللعبة فورًا عند الإقلاع (SIGSEGV داخل OS_FileRead).\n\nاضغط «تثبيت الملفات» ليتم التحميل داخل التطبيق نفسه ثم التحقق من كل ملف قبل تشغيل اللعبة.\n\nالسجل: %3$s</string>
+    <string name="gate_install">تثبيت الملفات</string>
+    <string name="gate_recheck">إعادة الفحص</string>
+    <string name="gate_exit">خروج</string>
+</resources>
