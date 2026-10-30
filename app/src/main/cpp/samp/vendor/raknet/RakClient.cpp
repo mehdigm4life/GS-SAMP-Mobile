@@ -15,6 +15,8 @@
 /// option) any later version.
 
 #include "RakClient.h"
+#include "main.h"
+#include <arpa/inet.h>
 #include "PacketEnumerations.h"
 #include "GetTime.h"
 
@@ -47,15 +49,40 @@ bool RakClient::Connect( const char* host, unsigned short serverPort, unsigned s
 	RakPeer::Disconnect( 100 );
 	
 	RakPeer::Initialize( 1, clientPort, threadSleepTimer );
+
+	FLog( "raknet: connecting to %s:%u (client port %u)", host, ( unsigned ) serverPort, ( unsigned ) clientPort );
 	
 	if ( host[ 0 ] < '0' || host[ 0 ] > '2' )
 	{
 #if !defined(_COMPATIBILITY_1)
-		host = ( char* ) SocketLayer::Instance()->DomainNameToIP( host );
+		// The test above only accepted literals starting with '0', '1' or '2',
+		// so "94.23.168.153" was handed to DNS and a failed lookup replaced the
+		// host with a null pointer. A real literal check is correct for every
+		// address, and a failed lookup now returns false so the caller retries
+		// instead of connecting to nothing.
+		struct in_addr literal;
+		if ( inet_pton( AF_INET, host, &literal ) == 1 )
+		{
+			FLog( "raknet: %s is a literal address", host );
+		}
+		else
+		{
+			char szResolved[ 64 ];
+			const char* resolved = SocketLayer::Instance()->DomainNameToIP( host );
+			if ( resolved == 0 || resolved[ 0 ] == 0 )
+			{
+				FLog( "raknet: cannot resolve \"%s\" - not connecting", host );
+				return false;
+			}
+			snprintf( szResolved, sizeof( szResolved ), "%s", resolved );
+			FLog( "raknet: resolved \"%s\" to %s", host, szResolved );
+			host = szResolved;
+		}
 #else
 		return false;
 #endif
 	}
+
 	
 	unsigned i;
 	

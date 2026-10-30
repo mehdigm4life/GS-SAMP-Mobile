@@ -537,6 +537,77 @@ void handlerSoft(int signum, siginfo_t *info, void* contextPtr)
 		act4_old.sa_sigaction(signum, info, contextPtr);
 }
 
+/**
+ * The server to connect to comes from settings.ini: [client] host and port.
+ *
+ * It used to be hardcoded - "94.23.168.153", 2305 - so the file the player was
+ * told to edit had no effect at all and no server ever accepted the connection.
+ *
+ * settings.ini is hand-edited, so every shape a player actually types is
+ * accepted: "1.2.3.4", "1.2.3.4:7777", "samp.example.com:7777", quotes, spaces,
+ * a "samp://" or "udp://" prefix. A port inside the host key wins over the port
+ * key, because that is the more specific thing the player wrote.
+ */
+static void ResolveConfiguredServer(const stSettings& settings, char* hostOut, size_t hostSize, int* portOut)
+{
+	if (hostOut == nullptr || hostSize == 0 || portOut == nullptr)
+		return;
+
+	hostOut[0] = 0;
+	*portOut = 7777;
+
+	char raw[192];
+	size_t n = 0;
+	for (const char* src = settings.szHost; src && *src && n + 1 < sizeof(raw); ++src)
+		raw[n++] = *src;
+	raw[n] = 0;
+
+	char* start = raw;
+	while (*start == ' ' || *start == '\t' || *start == '\r' || *start == '\n' || *start == '"' || *start == '\'')
+		start++;
+
+	char* end = start + strlen(start);
+	while (end > start && (end[-1] == ' ' || end[-1] == '\t' || end[-1] == '\r' || end[-1] == '\n' || end[-1] == '"' || end[-1] == '\''))
+		*--end = 0;
+
+	if (strncmp(start, "samp://", 7) == 0)
+		start += 7;
+	else if (strncmp(start, "udp://", 6) == 0)
+		start += 6;
+
+	int port = settings.iPort;
+
+	// "host:port". A second colon would make this IPv6, which is left untouched.
+	char* colon = strrchr(start, ':');
+	if (colon != nullptr && strchr(colon + 1, ':') == nullptr && colon[1] != 0)
+	{
+		bool digits = true;
+		for (const char* c = colon + 1; *c; ++c)
+		{
+			if (*c < '0' || *c > '9')
+			{
+				digits = false;
+				break;
+			}
+		}
+		if (digits)
+		{
+			const int parsed = atoi(colon + 1);
+			if (parsed > 0 && parsed < 65536)
+			{
+				port = parsed;
+				*colon = 0;
+			}
+		}
+	}
+
+	if (port <= 0 || port > 65535)
+		port = 7777;
+
+	snprintf(hostOut, hostSize, "%s", start[0] ? start : "127.0.0.1");
+	*portOut = port;
+}
+
 void DoInitStuff()
 {
 	if (bGameInited == false)
@@ -586,7 +657,15 @@ void DoInitStuff()
 	{
 		//ReadSettingFile();
 
-		pNetGame = new CNetGame("94.23.168.153", 2305, pSettings->Get().szNickName, pSettings->Get().szPassword);
+		// The address is read from settings.ini on every start. It used to be a
+		// hardcoded IP here, which is why no server configured in the file could
+		// ever be reached.
+		char szServerHost[128];
+		int iServerPort = 7777;
+		ResolveConfiguredServer(pSettings->Get(), szServerHost, sizeof(szServerHost), &iServerPort);
+		FLog("net: configured server %s:%d (from %sSAMP/settings.ini)", szServerHost, iServerPort, g_pszStorage);
+
+		pNetGame = new CNetGame(szServerHost, iServerPort, pSettings->Get().szNickName, pSettings->Get().szPassword);
 		bNetworkInited = true;
 
         FLog("DoInitStuff end");

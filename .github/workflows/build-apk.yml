@@ -502,6 +502,62 @@ jobs:
           cat crash.md >> "$GITHUB_STEP_SUMMARY"
           exit $status
 
+      - name: Verify the server address is read from settings.ini
+        run: |
+          set -uo pipefail
+          APK=$(find app/build/outputs/apk/debug -name '*.apk' | head -1)
+          tmp=$(mktemp -d)
+          if ! unzip -o -q "$APK" 'lib/arm64-v8a/libsamp.so' 'classes*.dex' -d "$tmp"; then
+            echo "::error::cannot extract libsamp.so and the dex files from $APK"
+            exit 1
+          fi
+          SO="$tmp/lib/arm64-v8a/libsamp.so"
+
+          # The client used to dial a hardcoded address, so a server configured in
+          # settings.ini was never reached, and the server browser wrote the file
+          # into a folder the game does not read. Both halves are checked here.
+          status=0
+          {
+            echo '### server address'
+            echo '```'
+          } > net.md
+
+          expect_present() {
+            local where="$1" needle="$2" count
+            count=$(grep -a -c -F -- "$needle" "$where" || true)
+            count=${count:-0}
+            echo "::notice::net-gate count=$count :: $needle"
+            echo "$count  $needle" >> net.md
+            if [ "$count" -lt 1 ]; then
+              status=1
+              echo "::warning::missing: $needle"
+            fi
+          }
+
+          expect_absent() {
+            local where="$1" needle="$2" count
+            count=$(grep -a -c -F -- "$needle" "$where" || true)
+            count=${count:-0}
+            echo "::notice::net-gate count=$count (must be 0) :: $needle"
+            echo "$count (must be 0)  $needle" >> net.md
+            if [ "$count" -ne 0 ]; then
+              status=1
+              echo "::warning::still present: $needle"
+            fi
+          }
+
+          expect_present "$SO" "net: configured server %s:%d (from %sSAMP/settings.ini)"
+          expect_present "$SO" "net: connect attempt %s:%d"
+          expect_present "$SO" "raknet: connecting to %s:%u (client port %u)"
+          expect_absent  "$SO" "94.23.168.153"
+          cat "$tmp"/classes*.dex > "$tmp/alldex" 2>/dev/null || true
+          expect_present "$tmp/alldex" "SettingsIni"
+
+          echo '```' >> net.md
+          cat net.md
+          cat net.md >> "$GITHUB_STEP_SUMMARY"
+          exit $status
+
       - name: Inspect APK
         if: success()
         run: |
