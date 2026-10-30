@@ -21,7 +21,7 @@ concurrency:
   cancel-in-progress: false
 
 permissions:
-  contents: read
+  contents: write
   issues: write
 
 jobs:
@@ -154,6 +154,29 @@ jobs:
           gh issue create --repo "$GITHUB_REPOSITORY" \
             --title "Build failure (run ${{ github.run_number }})" \
             --body-file /tmp/body.md || true
+
+      # Publishing the APK as a release asset gives a stable, clickable
+      # download URL instead of the ephemeral Actions artifact zip.
+      - name: Publish release
+        if: success()
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          set -euo pipefail
+          APK=$(find app/build/outputs/apk/debug -name '*.apk' | head -1)
+          if [ -z "$APK" ]; then echo "::error::no apk produced"; exit 1; fi
+          echo "APK: $APK ($(du -h "$APK" | cut -f1))"
+
+          TAG="build-${GITHUB_RUN_NUMBER}"
+          gh release create "$TAG" "$APK#app-debug.apk" \
+            --repo "$GITHUB_REPOSITORY" \
+            --target "$GITHUB_SHA" \
+            --title "SA-MP Mobile 2.10 - build ${GITHUB_RUN_NUMBER}" \
+            --notes "Automated debug build of commit ${GITHUB_SHA:0:7}.
+
+          * ABIs: armeabi-v7a + arm64-v8a
+          * Signed with the standard Android debug key (installable, not for Play Store)
+          * Built by GitHub Actions, no local toolchain required"
 
       - name: Collect build report
         if: always()
