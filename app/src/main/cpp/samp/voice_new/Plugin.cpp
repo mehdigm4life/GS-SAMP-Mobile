@@ -199,7 +199,22 @@ void Plugin::MainLoop()
                 if (Plugin::MicPress > 1) {
                     Plugin::MicPress--;
                 }
-                if (ImGui::ImageButton(Plugin::recordStatus ? (ImTextureID)MicroIcon::tActiveIcon->raster : (ImTextureID)MicroIcon::tPassiveIcon->raster, vecButSize))
+                // tActiveIcon is never loaded by MicroIcon::Init(), and the
+                // database does not carry "voice_off" either, so both pointers
+                // can be null - they used to be dereferenced every frame.
+                RwTexture* micTexture = Plugin::recordStatus ? MicroIcon::tActiveIcon : MicroIcon::tPassiveIcon;
+                if (micTexture == nullptr || micTexture->raster == nullptr)
+                    micTexture = Plugin::recordStatus ? MicroIcon::tPassiveIcon : MicroIcon::tActiveIcon;
+                if (micTexture == nullptr || micTexture->raster == nullptr)
+                    micTexture = MicroIcon::tMutedIcon;
+
+                // Without an icon the same control is still offered as a plain
+                // button, so voice chat stays usable instead of disappearing.
+                const bool pressed = (micTexture != nullptr && micTexture->raster != nullptr)
+                    ? ImGui::ImageButton((ImTextureID)micTexture->raster, vecButSize)
+                    : ImGui::Button("MIC", vecButSize);
+
+                if (pressed)
                 {
                     if (PluginConfig::GetMicroEnable())
                     {
@@ -265,7 +280,12 @@ void Plugin::MainLoop()
             }
             else
             {
-                if (ImGui::ImageButton((ImTextureID)MicroIcon::tMutedIcon->raster, vecButSize))
+                RwTexture* mutedTexture = MicroIcon::tMutedIcon;
+                const bool mutePressed = (mutedTexture != nullptr && mutedTexture->raster != nullptr)
+                    ? ImGui::ImageButton((ImTextureID)mutedTexture->raster, vecButSize)
+                    : ImGui::Button("MIC", vecButSize);
+
+                if (mutePressed)
                 {
                     // ~ none
                 }

@@ -39,11 +39,24 @@ include_directories(
 #set_target_properties(libopus PROPERTIES IMPORTED_LOCATION ${CMAKE_CURRENT_SOURCE_DIR}/vendor/opus/libopus.a)
 
 add_library(samp SHARED ${SOURCES})
+
+# A stripped library cannot answer which function an offset belongs to, and that
+# is the only question a crash report asks. AGP strips the library it packages,
+# so a copy of the freshly linked one - still carrying its symbols and DWARF -
+# is kept next to the build tree for the symbol map step.
+add_custom_command(TARGET samp POST_BUILD
+        COMMAND ${CMAKE_COMMAND} -E copy
+                $<TARGET_FILE:samp> ${CMAKE_BINARY_DIR}/libsamp-unstripped.so
+        COMMENT "keeping an unstripped copy of libsamp.so for crash analysis")
 target_link_libraries(samp log EGL GLESv3 opus shadowhook::shadowhook ${CMAKE_CURRENT_SOURCE_DIR}/vendor/bass/libs/${ANDROID_ABI}/libbass.so)
 
 # Set compilation flags
 #
-set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -w -s -g -fvisibility=hidden -pthread -Wall -O3 -fexceptions")
+# No -s here. -s strips the symbol table at link time, so every crash offset in
+# libsamp.so became unreadable - the packaged library is stripped by AGP anyway,
+# which means dropping -s costs nothing in the APK and keeps the unstripped copy
+# (and the system tombstone) able to name a function.
+set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -w -g -fvisibility=hidden -pthread -Wall -O3 -fexceptions")
 
 # With -fvisibility=hidden every symbol that is not explicitly exported is kept
 # out of .dynsym. Debug builds are far easier to reason about (and to diagnose
