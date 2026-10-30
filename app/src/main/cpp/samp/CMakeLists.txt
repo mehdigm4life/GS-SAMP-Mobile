@@ -45,3 +45,12 @@ target_link_libraries(samp log EGL GLESv3 opus shadowhook::shadowhook ${CMAKE_CU
 #
 set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -w -s -g -fvisibility=hidden -pthread -Wall -O3 -fexceptions")
 
+# With -fvisibility=hidden every symbol that is not explicitly exported is kept
+# out of .dynsym. Debug builds are far easier to reason about (and to diagnose
+# with dlsym/readelf) when everything is exported, so mirror what upstream does
+# on its newer branch: default visibility for Debug, hidden for Release.
+# JNI_OnLoad itself is marked JNIEXPORT, so it is exported in both cases.
+target_compile_options(samp PRIVATE
+        $<$<CONFIG:Debug>:-fvisibility=default>
+        )
+

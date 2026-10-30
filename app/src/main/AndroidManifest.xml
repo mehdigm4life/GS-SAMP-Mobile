@@ -41,7 +41,7 @@
     <uses-permission android:name="com.google.android.c2dm.permission.RECEIVE" />
 
     <application
-        android:gwpAsanMode="always"
+        android:gwpAsanMode="never"
         android:requestLegacyExternalStorage="true"
         android:banner="@mipmap/ic_launcher"
         android:hardwareAccelerated="true"
@@ -73,12 +73,26 @@
             android:configChanges="keyboard|keyboardHidden|orientation|screenSize|uiMode"
             android:launchMode="singleTask"
             android:windowSoftInputMode="adjustPan"
-            android:exported="true">
-        <intent-filter>
-            <action android:name="android.intent.action.MAIN" />
-            <category android:name="android.intent.category.LAUNCHER" />
-        </intent-filter>
-    </activity>
+            android:exported="false">
+        </activity>
+
+        <!--
+            Launcher entry point. The game needs read/write access to the shared
+            cache directory (/storage/emulated/0/GTA/), and MANAGE_EXTERNAL_STORAGE
+            can only be granted by the user from system settings. The game used to
+            be the launcher itself and never asked, so on Android 11+ it started
+            without access to its own data and died immediately.
+        -->
+        <activity
+            android:name=".launcher.StorageGateActivity"
+            android:screenOrientation="portrait"
+            android:exported="true"
+            android:theme="@style/Theme.AppCompat.Light.NoActionBar">
+            <intent-filter>
+                <action android:name="android.intent.action.MAIN" />
+                <category android:name="android.intent.category.LAUNCHER" />
+            </intent-filter>
+        </activity>
 
     <activity
         android:name=".launcher.MainActivity"

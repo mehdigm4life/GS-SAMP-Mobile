@@ -1,4 +1,4 @@
-﻿#include <jni.h>
+#include <jni.h>
 #include <pthread.h>
 #include <syscall.h>
 
@@ -28,7 +28,13 @@ Peerapol Unarak
 
 JavaVM* javaVM;
 
-char* g_pszStorage = nullptr;
+// Fallback storage root. It used to start as nullptr and was only assigned
+// from libGTASA's StorageRootBuffer inside the NvUtilInit hook. Anything that
+// touched g_pszStorage before that hook fired (FLog, ChatLog, InitGui's font
+// path) then formatted a null pointer. Defaulting to the documented cache
+// location keeps those paths valid from the very first instruction; the hook
+// still overrides this pointer once the game root is known.
+char* g_pszStorage = (char*)"/storage/emulated/0/GTA/";
 
 UI* pUI = nullptr;
 CGame *pGame = nullptr;
@@ -336,7 +342,34 @@ void InitGui()
 #include "armhook/patch.h"
 #include "util/CUtil.h"
 void SetUpGLHooks();
-jint JNI_OnLoad(JavaVM* vm, void* reserved)
+// ---------------------------------------------------------------------------
+// JNI_OnLoad is how ART initialises this library, and it is the ONLY place
+// where the game is bootstrapped: CHook::InitHookStuff(), InstallSpecialHooks(),
+// ApplyPatches_level0(), InitRenderWareFunctions(), MultiTouch::initialize(),
+// `pGame = new CGame()` and the SIGSEGV/SIGABRT/SIGFPE/SIGBUS handlers all
+// live here.
+//
+// It used to be declared as a plain C++ function:
+//
+//     jint JNI_OnLoad(JavaVM* vm, void* reserved)
+//
+// Two things then went wrong, and together they stopped it from ever running:
+//
+//   1. No `extern "C"` -> C++ linkage -> the symbol is emitted mangled as
+//      _Z10JNI_OnLoadP7_JavaVMPv, while ART looks up the literal name
+//      "JNI_OnLoad".
+//   2. The build also passes -fvisibility=hidden, so even the mangled symbol
+//      was not placed in .dynsym.
+//
+// The result: DynamicLoader::LoadNativeLibrary() found no JNI_OnLoad, the whole
+// native bootstrap was skipped, and the app quit right after the activity
+// opened. The same symbol is also looked up by CUtil::FindLib("libsamp.so"),
+// so exporting it fixes g_libSAMP as well.
+//
+// JNIEXPORT (== __attribute__((visibility("default")))) guarantees the export
+// even when -fvisibility=hidden is in effect.
+// ---------------------------------------------------------------------------
+extern "C" JNIEXPORT jint JNICALL JNI_OnLoad(JavaVM* vm, void* reserved)
 {
 	javaVM = vm;
 	LOGI("SA-MP library loaded! Build time: " __DATE__ " " __TIME__);
@@ -353,7 +386,14 @@ jint JNI_OnLoad(JavaVM* vm, void* reserved)
 		return JNI_VERSION_1_6;
 	}
 
-	firebase::crashlytics::Initialize();
+	// Kept disabled on purpose (the upstream GTA-2.11 branch disables it too).
+	// This call never actually ran before, because JNI_OnLoad was unreachable,
+	// so it is untested code in this build. Initialising the native Crashlytics
+	// SDK is also pointless here: the crash reports go to the original
+	// developer's Firebase project, which this fork has no access to. The
+	// firebase::crashlytics::Log()/SetCustomKey() calls below degrade to no-ops
+	// when the native SDK is not initialised.
+	//firebase::crashlytics::Initialize();
 
 	uintptr_t libgtasa = CUtil::FindLib("libGTASA.so");
 	uintptr_t libsamp = CUtil::FindLib("libsamp.so");
