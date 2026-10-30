@@ -158,6 +158,49 @@ jobs:
           } | tee probe.log
           { echo '### Dependency probe'; echo '```'; cat probe.log; echo '```'; } >> "$GITHUB_STEP_SUMMARY"
 
+      # The cache downloader is the part of this app that can silently hand the
+      # game a broken cache, so its behaviour (resume with HTTP Range, restart
+      # when the server ignores it, pause/resume/cancel, checksum detection) is
+      # covered by JVM unit tests against a local HTTP server. They must pass
+      # before an APK is produced.
+      - name: Run unit tests
+        run: |
+          chmod +x gradlew
+          set -o pipefail
+          ./gradlew --no-daemon --stacktrace :app:testDebugUnitTest 2>&1 | tee test.log
+
+      - name: Summarise unit tests
+        if: always()
+        run: |
+          python3 - <<'PYEOF'
+          import glob, xml.etree.ElementTree as ET, os
+
+          rows = []
+          total = failures = errors = skipped = 0
+          for path in sorted(glob.glob('app/build/test-results/testDebugUnitTest/*.xml')):
+              try:
+                  root = ET.parse(path).getroot()
+              except Exception as exc:
+                  rows.append('| %s | unreadable: %s |' % (os.path.basename(path), exc))
+                  continue
+              t = int(root.get('tests', 0))
+              f = int(root.get('failures', 0))
+              e = int(root.get('errors', 0))
+              s = int(root.get('skipped', 0))
+              total += t; failures += f; errors += e; skipped += s
+              rows.append('| %s | %d | %d | %d |' % (root.get('name'), t, f, e))
+
+          lines = ['### Unit tests', '', '| suite | tests | failures | errors |',
+                   '| --- | --- | --- | --- |']
+          lines += rows or ['| (no results) | 0 | 0 | 0 |']
+          lines += ['', '**%d tests, %d failures, %d errors, %d skipped**'
+                    % (total, failures, errors, skipped)]
+          report = '\n'.join(lines)
+          print(report)
+          open('tests.md', 'w').write(report)
+          PYEOF
+          cat tests.md >> "$GITHUB_STEP_SUMMARY"
+
       - name: Build debug APK
         run: |
           chmod +x gradlew
@@ -199,25 +242,69 @@ jobs:
           cat verify.md >> "$GITHUB_STEP_SUMMARY"
           exit $status
 
+      # The raw Actions log is only reachable from the GitHub UI, so mirror the
+      # failure into an issue where any API client can read it. Compile errors
+      # and assertion messages are extracted explicitly, because those are the
+      # only things that explain a red run.
       - name: Publish failure log as an issue
         if: failure()
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
+          set -uo pipefail
           {
-            echo 'Gradle build failed.'
-            echo ''
-            if [ -f probe.log ]; then echo 'Probe:'; echo '```'; cat probe.log; echo '```'; echo ''; fi
-            if [ ! -f build.log ]; then echo 'build.log missing'; exit 0; fi
-            echo 'Tail of the log:'
-            echo ''
+            echo "Failed run: $GITHUB_SERVER_URL/$GITHUB_REPOSITORY/actions/runs/$GITHUB_RUN_ID"
+            echo
+
+            echo '### Unit test results'
             echo '```'
-            tail -c 30000 build.log
+            python3 - <<'PYEOF' || echo "(no test-results xml)"
+          import glob, xml.etree.ElementTree as ET
+          found = False
+          for path in sorted(glob.glob('app/build/test-results/testDebugUnitTest/*.xml')):
+              root = ET.parse(path).getroot()
+              found = True
+              print('%s: tests=%s failures=%s errors=%s' % (
+                  root.get('name'), root.get('tests'), root.get('failures'), root.get('errors')))
+              for case in root.iter('testcase'):
+                  for bad in list(case.iter('failure')) + list(case.iter('error')):
+                      print('  FAILED %s.%s' % (case.get('classname'), case.get('name')))
+                      msg = (bad.get('message') or '') + '\n' + (bad.text or '')
+                      for line in msg.strip().splitlines()[:25]:
+                          print('    ' + line)
+          if not found:
+              print('(no test-results xml produced - compilation probably failed)')
+          PYEOF
             echo '```'
+            echo
+
+            echo '### Tail of the unit test log'
+            echo '```'
+            if [ -f test.log ]; then tail -c 20000 test.log; else echo '(test.log missing)'; fi
+            echo '```'
+            echo
+
+            echo '### Compiler errors (every non stack-trace line)'
+            echo '```'
+            if [ -f test.log ]; then
+              grep -vE "^[[:space:]]*at " test.log | grep -vE "^[[:space:]]*$" | tail -300
+            else
+              echo '(test.log missing)'
+            fi
+            echo '```'
+            echo
+
+            if [ -f build.log ]; then
+              echo '### Tail of the APK build log'
+              echo '```'
+              tail -c 20000 build.log
+              echo '```'
+            fi
           } > /tmp/body.md
+
           gh issue create --repo "$GITHUB_REPOSITORY" \
             --title "Build failure (run ${{ github.run_number }})" \
-            --body-file /tmp/body.md || true
+            --body-file /tmp/body.md || echo "issue creation failed"
 
       # Proof that the diagnostics really moved: the constant must be present
       # in both the compiled Java (classes*.dex) and libsamp.so.
@@ -301,6 +388,8 @@ jobs:
             [ -f verify.md ] && cat verify.md || true
             echo ''
             [ -f pathcheck.md ] && cat pathcheck.md || true
+            echo ''
+            [ -f tests.md ] && cat tests.md || true
           } > release-notes.md
 
           TAG="build-${GITHUB_RUN_NUMBER}"

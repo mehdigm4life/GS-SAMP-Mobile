@@ -30,6 +30,9 @@ import java.util.Locale;
 import java.util.ArrayList;
 import java.util.List;
 
+import com.samp.mobile.R;
+import com.samp.mobile.cache.CacheDownloadActivity;
+
 /**
  * Launcher entry point that guarantees the game can reach its data before the
  * game activity is started, and that keeps a readable log on the shared storage.
@@ -82,14 +85,21 @@ public class StorageGateActivity extends AppCompatActivity {
 
     private static final String GAME_ACTIVITY = "com.samp.mobile.game.SAMP";
 
-    /** Game cache download, as documented in the project README. */
-    private static final String CACHE_DOWNLOAD_URL =
-            "https://drive.google.com/file/d/1JW2RscmpHNz8g51phxjjKkubTV2ZDEmD/view?usp=drivesdk";
+    /**
+     * The cache is installed by the app itself (see CacheDownloadActivity).
+     * There is deliberately no external download link any more: a browser
+     * round-trip through a file host left the user with a ZIP they had to
+     * unpack by hand, and nothing verified that the result was complete.
+     */
+    private static final int REQUEST_INSTALL_CACHE = 1002;
 
     private static final int REQUEST_LEGACY_STORAGE = 1001;
 
     /** Guards against showing the dialog again on every onResume. */
     private boolean dialogShowing = false;
+
+    /** True while CacheDownloadActivity is on screen. */
+    private boolean installerOpen = false;
 
     /**
      * Lines recorded before storage access is granted. On Android 11+ nothing
@@ -125,6 +135,11 @@ public class StorageGateActivity extends AppCompatActivity {
     @Override
     protected void onResume() {
         super.onResume();
+        if (installerOpen) {
+            // Coming back from the installer is handled in onActivityResult;
+            // re-running the gate here would stack a second dialog on top.
+            return;
+        }
         if (hasStorageAccess()) {
             dialogShowing = false;
             ensureLogDir();
@@ -351,39 +366,31 @@ public class StorageGateActivity extends AppCompatActivity {
         launchGame();
     }
 
-    private void showMissingDataDialog(String missing) {
+    private void showMissingDataDialog(final String missing) {
         dialogShowing = true;
 
+        String message = getString(R.string.gate_missing_message,
+                missing, GAME_ROOT, LOG_DIR + "/" + LOG_FILE);
+
         new AlertDialog.Builder(this)
-                .setTitle("Game data not found")
-                .setMessage("Storage access is granted, but the game cache is missing.\n\n"
-                        + "Missing: " + missing + "\n\n"
-                        + "The cache must be extracted to:\n"
-                        + GAME_ROOT + "/\n\n"
-                        + "It has to contain at least:\n"
-                        + "  data/\n"
-                        + "  models/\n"
-                        + "  TEXT/AMERICAN.GXT\n"
-                        + "  SAMP/\n\n"
-                        + "The game cannot start without these files - it crashes inside\n"
-                        + "libGTASA.so as soon as it tries to read them.\n\n"
-                        + "Diagnostics: " + LOG_DIR + "/" + LOG_FILE)
+                .setTitle(R.string.gate_missing_title)
+                .setMessage(message)
                 .setCancelable(false)
-                .setPositiveButton("Download cache", new DialogInterface.OnClickListener() {
+                .setPositiveButton(R.string.gate_install, new DialogInterface.OnClickListener() {
                     @Override
                     public void onClick(DialogInterface d, int which) {
                         dialogShowing = false;
-                        openUrl(CACHE_DOWNLOAD_URL);
+                        openInstaller(missing);
                     }
                 })
-                .setNeutralButton("Re-check", new DialogInterface.OnClickListener() {
+                .setNeutralButton(R.string.gate_recheck, new DialogInterface.OnClickListener() {
                     @Override
                     public void onClick(DialogInterface d, int which) {
                         dialogShowing = false;
                         startGameIfPossible();
                     }
                 })
-                .setNegativeButton("Exit", new DialogInterface.OnClickListener() {
+                .setNegativeButton(R.string.gate_exit, new DialogInterface.OnClickListener() {
                     @Override
                     public void onClick(DialogInterface d, int which) {
                         finish();
@@ -392,12 +399,44 @@ public class StorageGateActivity extends AppCompatActivity {
                 .show();
     }
 
-    private void openUrl(String url) {
+    /**
+     * Opens the in-app installer. It downloads straight into GAME_ROOT, verifies
+     * every file against the server manifest and only then returns RESULT_OK.
+     */
+    private void openInstaller(String missing) {
+        logLine("opening in-app cache installer");
+        installerOpen = true;
         try {
-            startActivity(new Intent(Intent.ACTION_VIEW, Uri.parse(url)));
+            Intent intent = new Intent(this, CacheDownloadActivity.class);
+            intent.putExtra(CacheDownloadActivity.EXTRA_ROOT, GAME_ROOT);
+            intent.putExtra(CacheDownloadActivity.EXTRA_MISSING, missing);
+            startActivityForResult(intent, REQUEST_INSTALL_CACHE);
         } catch (Throwable t) {
-            logLine("cannot open " + url + ": " + t);
-            Toast.makeText(this, "Open this link manually:\n" + url, Toast.LENGTH_LONG).show();
+            installerOpen = false;
+            Log.e(TAG, "cannot open installer", t);
+            logLine("cannot open installer: " + Log.getStackTraceString(t));
+            dialogShowing = false;
+            Toast.makeText(this, "Cannot open the installer: " + t, Toast.LENGTH_LONG).show();
+        }
+    }
+
+    @Override
+    protected void onActivityResult(int requestCode, int resultCode, Intent data) {
+        super.onActivityResult(requestCode, resultCode, data);
+        if (requestCode != REQUEST_INSTALL_CACHE) {
+            return;
+        }
+        installerOpen = false;
+        logLine("installer returned: " + resultCode);
+        dialogShowing = false;
+
+        if (resultCode == RESULT_OK) {
+            // Belt and braces: even a fully verified manifest must satisfy the
+            // files libGTASA.so opens unconditionally at startup.
+            startGameIfPossible();
+        } else {
+            showMissingDataDialog(describeMissingData() == null
+                    ? "n/a" : describeMissingData());
         }
     }
 
