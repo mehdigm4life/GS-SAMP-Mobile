@@ -8,13 +8,13 @@ Image::Image(const std::string& arch_name, const std::string& name)
 
 void Image::performLayout()
 {
-	if (m_texture == nullptr) return;
+	if (m_texture == nullptr || m_texture->raster == nullptr) return;
 	this->setSize(ImVec2(m_texture->raster->width, m_texture->raster->height));
 }
 
 void Image::draw(ImGuiRenderer* renderer)
 {
-	if(m_texture != nullptr)
+	if (m_texture != nullptr && m_texture->raster != nullptr)
 		renderer->drawImage(absolutePosition(), absolutePosition() + size(), (ImTextureID)m_texture->raster);
 	Widget::draw(renderer);
 }

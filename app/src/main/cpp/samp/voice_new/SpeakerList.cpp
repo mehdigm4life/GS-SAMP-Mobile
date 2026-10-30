@@ -123,9 +123,14 @@ void SpeakerList::Render()
                             {
                                 pAudioStream->Stop(true);
                             }
-                            ImVec2 a = ImVec2(textPos.x, textPos.y);
-                            ImVec2 b = ImVec2(textPos.x + pUI->GetFontSize() / 2, textPos.y + pUI->GetFontSize() / 2);
-                            ImGui::GetBackgroundDrawList()->AddImage((ImTextureID)SpeakerList::tSpeakerIcon->raster, a, b);
+                            // The icon is optional: when the texture database does
+                            // not carry "speaker" the list still draws the names.
+                            if (SpeakerList::tSpeakerIcon != nullptr && SpeakerList::tSpeakerIcon->raster != nullptr)
+                            {
+                                ImVec2 a = ImVec2(textPos.x, textPos.y);
+                                ImVec2 b = ImVec2(textPos.x + pUI->GetFontSize() / 2, textPos.y + pUI->GetFontSize() / 2);
+                                ImGui::GetBackgroundDrawList()->AddImage((ImTextureID)SpeakerList::tSpeakerIcon->raster, a, b);
+                            }
                             
                             ImGui::PushFontOutline(0xFF000000, 2);
                             textPos.x = pUI->GetFontSize();
@@ -175,6 +180,11 @@ void SpeakerList::Draw(CVector* vec, float fDist)
     ImVec2 pos = ImVec2(Out.x, Out.y);
 	pos.x -= PluginConfig::kDefValSpeakerIconSize / 2;
     pos.y -= pUI->GetFontSize();
+
+    // Same rule as everywhere else in this file: a texture the database does
+    // not carry must not be dereferenced.
+    if (SpeakerList::tSpeakerIcon == nullptr || SpeakerList::tSpeakerIcon->raster == nullptr)
+        return;
 
     ImVec2 a = ImVec2(pos.x, pos.y);
     ImVec2 b = ImVec2(pos.x + PluginConfig::kDefValSpeakerIconSize, pos.y + PluginConfig::kDefValSpeakerIconSize);

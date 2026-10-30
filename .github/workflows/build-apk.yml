@@ -468,6 +468,48 @@ jobs:
           cat font.md >> "$GITHUB_STEP_SUMMARY"
           exit $status
 
+      # The crash that ended every session right after a server accepted the
+      # client was VoiceButton::draw() dereferencing a texture that the installed
+      # database does not contain ("Texture (samp) not found in database
+      # (voiceactive)"). These lines are what keeps that class of crash out: an
+      # icon the database does not carry must never be dereferenced, and the
+      # button must still be drawn without it.
+      - name: Verify a missing UI texture cannot crash the game
+        run: |
+          set -uo pipefail
+          status=0
+          {
+            echo '### texture guards'
+            echo '```'
+          } > guards.md
+
+          check() {
+            local file="$1" needle="$2"
+            if [ ! -f "$file" ]; then
+              echo "missing file  $file" >> guards.md
+              status=1
+              return
+            fi
+            local count
+            count=$(grep -c -F -- "$needle" "$file" || true)
+            echo "${count:-0}  $(basename "$file"): $needle" >> guards.md
+            if [ "${count:-0}" -lt 1 ]; then status=1; fi
+          }
+
+          check app/src/main/cpp/samp/gui/samp_widgets/voicebutton.h "texture->raster != nullptr"
+          check app/src/main/cpp/samp/gui/samp_widgets/voicebutton.h "Button::draw(renderer)"
+          check app/src/main/cpp/samp/gui/samp_widgets/voicebutton.h "LoadIcon"
+          check app/src/main/cpp/samp/playertags.cpp "m_pMicroIconTexture->raster != nullptr"
+          check app/src/main/cpp/samp/playertags.cpp "m_pAFKIconTexture->raster != nullptr"
+          check app/src/main/cpp/samp/voice_new/SpeakerList.cpp "tSpeakerIcon->raster != nullptr"
+          check app/src/main/cpp/samp/voice_new/Plugin.cpp "micTexture->raster != nullptr"
+          check app/src/main/cpp/samp/gui/widgets/image.cpp "m_texture->raster != nullptr"
+
+          echo '```' >> guards.md
+          cat guards.md
+          cat guards.md >> "$GITHUB_STEP_SUMMARY"
+          exit $status
+
       - name: Verify the crash reporter and stage tracking are linked
         run: |
           set -uo pipefail
