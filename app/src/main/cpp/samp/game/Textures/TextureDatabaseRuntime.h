@@ -37,23 +37,21 @@ public:
 
     // Picks the texture family the engine must open for "withName".
     //
-    // The engine resolves DF_Default from its own GL capability flags
-    // (has_s3tc / has_pvrtc / has_atitc in batexdb), and that probe does not
-    // agree with the files the installer downloaded on every driver: on the
-    // PowerVR Rogue GE8320 it reports DXT even though the GL_EXTENSIONS string
-    // has no S3TC at all, the engine then opens texdb/mobile/mobile.dxt.tmb,
-    // fails, and dereferences the null database inside
-    // TextureDatabaseRuntime::SortEntries (SIGSEGV at 0x6f1).
+    // TextureDatabaseRuntime::Load() does not honour the format it is given: it
+    // stores it at [db+0xa0] and the selection at 0x220700 rewrites it, so every
+    // database ends up as DXT (the launcher passed DF_PVR for "player" and the
+    // engine still opened texdb/player/player.dxt.tmb). When that index is
+    // missing, Load() dereferences the null database in SortEntries and the app
+    // dies with SIGSEGV right after the loading screen.
     //
-    // The files on disk are the only ground truth, so the family is chosen from
-    // what the installer actually verified: the requested family when its .tmb
-    // exists, otherwise the first family that does exist.
+    // The files on disk are the only ground truth: the .dxt index is requested
+    // when it exists, otherwise the format the caller asked for is kept.
     static TextureDatabaseFormat ResolveFormatForDevice(const char *withName, TextureDatabaseFormat preferredFormat);
 
-    // True when at least one texture family of "withName" is on disk, i.e. when
-    // the engine can open texdb/<db>/<db>.<family>.tmb. Loading a database whose
-    // index is missing makes TextureDatabaseRuntime::SortEntries dereference a
-    // null database, so callers must ask this before calling Load.
+    // True when the .dxt index of "withName" is on disk, i.e. when the engine can
+    // open this database without crashing. Callers must ask this before Load():
+    // a skipped database loses its textures, a loaded one without its index
+    // kills the process.
     static bool IsTextureDatabaseInstalled(const char *withName);
     static TextureDatabaseRuntime* GetDatabase(const char *dbName);
     static void UpdateStreaming(float deltaTime, bool flush);

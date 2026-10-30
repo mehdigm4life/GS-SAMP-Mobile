@@ -98,7 +98,7 @@ public class ManifestParserTest {
     }
 
     @Test
-    public void filtersIgnoredNamesAndWrongGpu() throws Exception {
+    public void filtersIgnoredNamesButKeepsEveryTextureFamily() throws Exception {
         String json = "{\"files\":["
                 + "{\"path\":\"data/main.scm\",\"size\":1},"
                 + "{\"path\":\"samp_log.txt\",\"size\":1},"
@@ -108,16 +108,18 @@ public class ManifestParserTest {
                 + "]}";
         List<RemoteFile> all = ManifestParser.parseFileList(json, "https://host/f.json");
 
+        // The engine picks the family itself, so every family is installed.
         List<RemoteFile> dxt = ManifestParser.filterForDevice(all, GpuDetector.DXT);
-        assertEquals(3, dxt.size());
+        assertEquals(4, dxt.size());
         assertEquals("data/main.scm", dxt.get(0).getPath());
         assertEquals("texdb/a.dxt.dat", dxt.get(1).getPath());
+        assertEquals("texdb/a.etc.dat", dxt.get(2).getPath());
         // The redundant "GTA/" root segment is stripped so files land in the
         // same folder the game reads.
-        assertEquals("data/extra.scm", dxt.get(2).getPath());
+        assertEquals("data/extra.scm", dxt.get(3).getPath());
 
         List<RemoteFile> etc = ManifestParser.filterForDevice(all, GpuDetector.ETC);
-        assertEquals("texdb/a.etc.dat", etc.get(1).getPath());
+        assertEquals(4, etc.size());
     }
 
     @Test
@@ -171,22 +173,26 @@ public class ManifestParserTest {
                 ManifestParser.hasFormatToken("texdb/mobile/mobile.dxt1", "dxt"));
         assertFalse(ManifestParser.hasFormatToken("texdb/mobile/mobile.pvr", "dxt"));
 
-        assertTrue(ManifestParser.matchesGpu("texdb/mobile/mobile.dxt", GpuDetector.DXT));
-        assertFalse(ManifestParser.matchesGpu("texdb/mobile/mobile.dxt", GpuDetector.PVR));
-        assertTrue(ManifestParser.matchesGpu("texdb/mobile/mobile.pvr.tmb", GpuDetector.PVR));
-        assertFalse(ManifestParser.matchesGpu("texdb/mobile/mobile.pvr.tmb", GpuDetector.DXT));
-
-        // The uncompressed index is shared by every family.
-        assertTrue(ManifestParser.matchesGpu("texdb/mobile/mobile.unc.tmb", GpuDetector.DXT));
-        assertTrue(ManifestParser.matchesGpu("texdb/mobile/mobile.unc.tmb", GpuDetector.PVR));
-
-        // Files outside texdb/ have no variants and are always kept.
-        assertTrue(ManifestParser.matchesGpu("data/main.scm", GpuDetector.PVR));
-        assertTrue(ManifestParser.matchesGpu("player/player.dxt.dat", GpuDetector.PVR));
+        // No family is dropped any more: Load() ignores the format it is given
+        // and opens the one it selected itself, so the cache must contain all of
+        // them or the run ends in SortEntries.
+        for (int gpu : new int[]{GpuDetector.DXT, GpuDetector.ETC, GpuDetector.PVR}) {
+            assertTrue(ManifestParser.matchesGpu("texdb/mobile/mobile.dxt", gpu));
+            assertTrue(ManifestParser.matchesGpu("texdb/mobile/mobile.dxt.tmb", gpu));
+            assertTrue(ManifestParser.matchesGpu("texdb/mobile/mobile.pvr.tmb", gpu));
+            assertTrue(ManifestParser.matchesGpu("texdb/mobile/mobile.unc.tmb", gpu));
+            assertTrue(ManifestParser.matchesGpu("data/main.scm", gpu));
+        }
     }
 
+    /**
+     * The device log that motivated 0.8.2.9: the launcher asked the engine for
+     * the PVR family and the engine still opened texdb/player/player.dxt.tmb.
+     * Everything the server publishes has to be installed, whatever GPU the
+     * probe reports.
+     */
     @Test
-    public void aDxtDeviceKeepsTheDxtIndexTheGameOpens() throws Exception {
+    public void everyPublishedFamilyIsInstalledWhateverTheGpu() throws Exception {
         String json = "{\"files\":["
                 + "{\"path\":\"texdb/mobile/mobile.dxt\",\"size\":1},"
                 + "{\"path\":\"texdb/mobile/mobile.dxt.tmb\",\"size\":1},"
@@ -197,18 +203,20 @@ public class ManifestParserTest {
                 + "]}";
         List<RemoteFile> all = ManifestParser.parseFileList(json, "https://host/f.json");
 
-        java.util.Set<String> kept = new java.util.HashSet<>();
-        for (RemoteFile f : ManifestParser.filterForDevice(all, GpuDetector.DXT)) {
-            kept.add(f.getPath());
-        }
+        for (int gpu : new int[]{GpuDetector.DXT, GpuDetector.ETC, GpuDetector.PVR}) {
+            java.util.Set<String> kept = new java.util.HashSet<>();
+            for (RemoteFile f : ManifestParser.filterForDevice(all, gpu)) {
+                kept.add(f.getPath());
+            }
 
-        assertTrue("the index libGTASA opens must be installed",
-                kept.contains("texdb/mobile/mobile.dxt.tmb"));
-        assertTrue(kept.contains("texdb/mobile/mobile.dxt"));
-        assertTrue(kept.contains("texdb/mobile/mobile.unc.tmb"));
-        assertFalse("the PVR copy does not have to be downloaded", kept.contains("texdb/mobile/mobile.pvr"));
-        assertFalse(kept.contains("texdb/mobile/mobile.etc"));
-        assertEquals("only the DXT pair plus the shared index", 3, kept.size());
+            assertTrue("the index libGTASA opens must be installed",
+                    kept.contains("texdb/mobile/mobile.dxt.tmb"));
+            assertTrue(kept.contains("texdb/mobile/mobile.dxt"));
+            assertTrue(kept.contains("texdb/mobile/mobile.pvr.tmb"));
+            assertTrue(kept.contains("texdb/mobile/mobile.etc"));
+            assertTrue(kept.contains("texdb/mobile/mobile.unc.tmb"));
+            assertEquals("nothing the server published is dropped", 6, kept.size());
+        }
     }
 
     @Test
