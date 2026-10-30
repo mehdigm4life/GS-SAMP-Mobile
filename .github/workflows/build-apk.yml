@@ -510,6 +510,41 @@ jobs:
           cat guards.md >> "$GITHUB_STEP_SUMMARY"
           exit $status
 
+      # IS_ANIMATION_LOADED (0x04EE) dereferences CAnimManager::GetAnimationBlock()
+      # without a null check, so an animation block this client does not carry
+      # kills the process at address 0x10. The client must ask the lookup first.
+      - name: Verify an unknown animation block cannot crash the game
+        run: |
+          set -uo pipefail
+          status=0
+          {
+            echo '### animation block guards'
+            echo '```'
+          } > anim.md
+
+          check() {
+            local file="$1" needle="$2" count
+            if [ ! -f "$file" ]; then
+              echo "missing file  $file" >> anim.md
+              status=1
+              return
+            fi
+            count=$(grep -c -F -- "$needle" "$file" || true)
+            echo "${count:-0}  $(basename "$file"): $needle" >> anim.md
+            if [ "${count:-0}" -lt 1 ]; then status=1; fi
+          }
+
+          check app/src/main/cpp/samp/game/game.cpp "CAnimManager17GetAnimationBlockEPKc"
+          check app/src/main/cpp/samp/game/game.cpp "HasAnimationBlock"
+          check app/src/main/cpp/samp/game/game.cpp "if (!HasAnimationBlock(szAnimLib))"
+          check app/src/main/cpp/samp/game/playerped.cpp "pGame->HasAnimationBlock(szAnimLib)"
+          check app/src/main/cpp/samp/game/game.h "bool HasAnimationBlock(const char* szAnimLib);"
+
+          echo '```' >> anim.md
+          cat anim.md
+          cat anim.md >> "$GITHUB_STEP_SUMMARY"
+          exit $status
+
       - name: Verify the crash reporter and stage tracking are linked
         run: |
           set -uo pipefail

@@ -121,6 +121,33 @@ Now:
 * a missing icon degrades to a plain `MIC` button, so voice chat stays usable,
 * a CI gate refuses a build where any of those guards disappears.
 
+### Why spawning on a server used to end the session
+
+`IS_ANIMATION_LOADED` is script command `0x04EE`. The engine resolves the block
+name and then reads the "loaded" byte of the result without checking that the
+lookup succeeded:
+
+```asm
+0x41d8ac  bl  CAnimManager::GetAnimationBlock
+0x41d8b0  ldrb w1, [x0, #0x10]      ; SEGV at 0x10 when the name is unknown
+```
+
+The block table comes from `ANIMGRP.DAT`. Servers preload their animations by
+sending every block name they know, and this client's `ANIMGRP.DAT` has no
+`ROB_FLEECA` - so the moment the player spawned, the preloader asked about a
+block that does not exist and the engine died reading address `+0x10`.
+
+Now:
+
+* `CGame::HasAnimationBlock()` asks the exported
+  `CAnimManager::GetAnimationBlock` directly (resolved with `dlsym`, with the
+  per-ABI offset as a fallback),
+* `CGame::IsAnimationLoaded()` answers "not loaded" for a block that is not
+  installed instead of asking the engine, and `RequestAnimation()` skips it,
+* `CPlayerPed::ApplyAnimation()` returns early for such a block, logs it once,
+  and no longer queues the same animation twice when the block is still loading,
+* a CI gate fails the build if any of those guards disappears.
+
 ### The server address comes from settings.ini
 
 `[client] host` and `[client] port` in
