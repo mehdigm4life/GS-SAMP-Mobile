@@ -320,8 +320,8 @@ public class StorageGateActivity extends AppCompatActivity {
             File index = new File(mobile, "mobile." + suffix + ".tmb");
             if (!index.exists()) {
                 logLine("texture database for this GPU is missing: "
-                        + index.getAbsolutePath() + " (renderer=""
-                        + GpuDetector.lastRenderer() + "")");
+                        + index.getAbsolutePath()
+                        + " renderer=[" + GpuDetector.lastRenderer() + "]");
                 return "texdb/mobile/mobile." + suffix + ".tmb";
             }
             return null;
