@@ -39,6 +39,15 @@ include_directories(
 #set_target_properties(libopus PROPERTIES IMPORTED_LOCATION ${CMAKE_CURRENT_SOURCE_DIR}/vendor/opus/libopus.a)
 
 add_library(samp SHARED ${SOURCES})
+
+# A stripped library cannot answer which function an offset belongs to, and that
+# is the only question a crash report asks. AGP strips the library it packages,
+# so a copy of the freshly linked one - still carrying its symbols and DWARF -
+# is kept next to the build tree for the symbol map step.
+add_custom_command(TARGET samp POST_BUILD
+        COMMAND ${CMAKE_COMMAND} -E copy
+                $<TARGET_FILE:samp> ${CMAKE_BINARY_DIR}/libsamp-unstripped.so
+        COMMENT "keeping an unstripped copy of libsamp.so for crash analysis")
 target_link_libraries(samp log EGL GLESv3 opus shadowhook::shadowhook ${CMAKE_CURRENT_SOURCE_DIR}/vendor/bass/libs/${ANDROID_ABI}/libbass.so)
 
 # Set compilation flags
