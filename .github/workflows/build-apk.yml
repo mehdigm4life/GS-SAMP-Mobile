@@ -225,11 +225,15 @@ jobs:
           fi
           TOOLS=$(dirname "$NM")
 
+          FOUND=$(find app -name 'libsamp*.so' -type f 2>/dev/null)
+          echo "::notice::found $(echo "$FOUND" | wc -l) libsamp*.so: $(echo "$FOUND" | head -6 | tr '\n' ' ')"
+          echo "::notice::app/.cxx exists: $([ -d app/.cxx ] && echo yes || echo no); build dirs: $(ls -1 app/.cxx 2>/dev/null | head -2 | tr '\n' ' ')"
+
           SO=""
-          for candidate in $(find app -name 'libsamp*.so' -type f 2>/dev/null); do
+          for candidate in $FOUND; do
             count=$("$NM" -C --defined-only "$candidate" 2>/dev/null | wc -l)
-            echo "candidate: $candidate ($count symbols)"
-            if [ "${count:-0}" -gt 100 ]; then SO="$candidate"; break; fi
+            echo "::notice::candidate $(basename "$(dirname "$candidate")")/$(basename "$candidate") symbols=${count:-0}"
+            if [ "${count:-0}" -gt 100 ] && [ -z "$SO" ]; then SO="$candidate"; fi
           done
           if [ -z "$SO" ]; then
             echo "::notice::no library with symbols in the build tree"
