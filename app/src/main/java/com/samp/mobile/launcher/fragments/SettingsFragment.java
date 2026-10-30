@@ -30,6 +30,7 @@ import com.samp.mobile.R;
 import com.samp.mobile.launcher.MainActivity;
 import com.samp.mobile.launcher.SplashActivity;
 import com.samp.mobile.launcher.util.ButtonAnimator;
+import com.samp.mobile.launcher.util.SettingsIni;
 import com.samp.mobile.launcher.util.SharedPreferenceCore;
 import com.samp.mobile.launcher.util.Util;
 
@@ -81,7 +82,7 @@ public class SettingsFragment extends Fragment {
         adapter.setDropDownViewResource(androidx.appcompat.R.layout.support_simple_spinner_dropdown_item);
         autoCompleteTextView.setAdapter(adapter);
 
-        File file = new File(getActivity().getExternalFilesDir(null) + "/SAMP/settings.ini");
+        File file = SettingsIni.resolve(getActivity());
         try {
             mWini = new Wini(file);
 
@@ -96,7 +97,7 @@ public class SettingsFragment extends Fragment {
             @Override
             public void onItemSelected(AdapterView<?> parent, View view, int position, long id) {
                 new SharedPreferenceCore().setInt(requireContext().getApplicationContext(), "VERSION", position);
-                File file = new File(getActivity().getExternalFilesDir(null) + "/SAMP/settings.ini");
+                File file = SettingsIni.resolve(getActivity());
                 if(file.exists()) {
                     try {
                         if(mWini != null) {
@@ -124,7 +125,7 @@ public class SettingsFragment extends Fragment {
             @Override
             public void onTextChanged(CharSequence charSequence, int i, int i1, int i2) {
                 String text = charSequence.toString();
-                File file = new File(getActivity().getExternalFilesDir(null) + "/SAMP/settings.ini");
+                File file = SettingsIni.resolve(getActivity());
                 if(file.exists()) {
                     try {
                         if(mWini != null) {
@@ -226,7 +227,7 @@ public class SettingsFragment extends Fragment {
                     }
                 }
                 new SharedPreferenceCore().setInt(requireContext().getApplicationContext(), "MESSAGE_COUNT", realProgress);
-                File file = new File(getActivity().getExternalFilesDir(null) + "/SAMP/settings.ini");
+                File file = SettingsIni.resolve(getActivity());
                 if(file.exists()) {
                     try {
                         if(mWini != null) {
@@ -272,7 +273,7 @@ public class SettingsFragment extends Fragment {
                     }
                 }
                 new SharedPreferenceCore().setInt(requireContext().getApplicationContext(), "FPS_LIMIT", realProgress);
-                File file = new File(getActivity().getExternalFilesDir(null) + "/SAMP/settings.ini");
+                File file = SettingsIni.resolve(getActivity());
                 if(file.exists()) {
                     try {
                         if(mWini != null) {

@@ -495,8 +495,14 @@ void CNetGame::ProcessConnecting()
 {
 	if (GetTickCount() - m_dwLastConnectAttempt > 1000/*3000*/)
 	{
-		//if (pUI) pUI->chat()->addDebugMessage("Connecting to %s:%d...", m_szHostOrIp, m_iPort);
-		if (pUI) pUI->chat()->addDebugMessage("Connecting to Server...");
+		// The address is on the screen, not only in the log: if the line says a
+		// host the player did not configure, settings.ini was not the file that
+		// was read, and that is visible without a log at all.
+		if (pUI) pUI->chat()->addDebugMessage("Connecting to %s:%d...", m_szHostOrIp, m_iPort);
+
+		// The address comes from settings.ini, so it has to be in the log: this
+		// line is what tells a wrong host from a server that never answers.
+		FLog("net: connect attempt %s:%d", m_szHostOrIp, m_iPort);
 
 		m_pRakClient->Connect(m_szHostOrIp, m_iPort, 0, 0, 2);
 		
@@ -535,6 +541,7 @@ void CNetGame::Packet_AuthKey(Packet *pkt)
 // 0.3.7
 void CNetGame::Packet_ConnectAttemptFailed(Packet *pkt)
 {
+	FLog("net: no response from %s:%d, retrying", m_szHostOrIp, m_iPort);
 	if (pUI) pUI->chat()->addDebugMessage("The server didn't respond. Retrying..");
 	if (pAudioStream) { //add new
 		pAudioStream->Stop(true);
@@ -549,6 +556,7 @@ void CNetGame::Packet_ConnectAttemptFailed(Packet *pkt)
 // 0.3.7
 void CNetGame::Packet_NoFreeIncomingConnections(Packet *pkt)
 {
+	FLog("net: server %s:%d is full", m_szHostOrIp, m_iPort);
 	if(pUI) pUI->chat()->addDebugMessage("The server is full. Retrying...");
 	SpeakerList::Hide(); //addnew
 	MicroIcon::Hide();
@@ -572,6 +580,8 @@ void CNetGame::Packet_DisconnectionNotification(Packet *pkt)
 // 0.3.7
 void CNetGame::Packet_ConnectionSucceeded(Packet *pkt)
 {
+	FLog("net: connection accepted by %s:%d", m_szHostOrIp, m_iPort);
+
 	RakNet::BitStream bsSuccAuth(pkt->data, pkt->length, true);
 	PLAYERID MyPlayerID;
 	unsigned int uiChallenge;

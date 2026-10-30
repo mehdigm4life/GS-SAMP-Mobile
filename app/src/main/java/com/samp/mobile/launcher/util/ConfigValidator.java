@@ -11,12 +11,10 @@ import java.io.OutputStream;
 
 public class ConfigValidator {
     public static void validateConfigFiles(Context context) {
-        File externalFilesDir = context.getExternalFilesDir(null);
-        File file = new File(externalFilesDir, "SAMP/settings.ini");
-        if (!file.exists()) {
-            file.getParentFile().mkdirs();
-            copyAsset(context.getAssets(), "settings.ini", file.toString());
-        }
+        // resolve() hands back the file libsamp actually reads and seeds it from
+        // the asset when it is missing, so validation can no longer create a
+        // settings.ini in a folder the game never opens.
+        SettingsIni.resolve(context);
         /*File file2 = new File(externalFilesDir, "gta_sa.set");
         if (!file2.exists()) {
             file2.getParentFile().mkdirs();
