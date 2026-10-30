@@ -95,6 +95,17 @@ index the engine opens is missing. `libsamp` therefore keeps two safety nets:
 * the launcher gate accepts any installed `mobile.<family>.tmb` for the same
   reason, and only opens the installer when no family is present at all.
 
+The overlay font is part of the same contract. `libsamp` loads
+`SAMP/fonts/arial_bold.ttf` while the UI starts up, and
+`ImFontAtlas::AddFontFromFileTTF()` calls `abort()` when the file is missing -
+which killed the game with `SIGABRT` inside `UI::initialize()` right after the
+loading screen. The APK now ships the font
+(`assets/SAMP/fonts/arial_bold.ttf`) and the launcher seeds it into
+`SAMP/fonts/` on the first start. As a second line of defence,
+`ImGuiWrapper::initialize()` checks that the file is readable before calling into
+dear imgui, tries the configured name plus the other known locations, and falls
+back to the built-in `ProggyClean` font - it never aborts.
+
 ## Building
 
 Clone the `GTA-2.10` branch:
