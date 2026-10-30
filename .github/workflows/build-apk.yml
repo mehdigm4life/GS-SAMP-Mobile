@@ -149,11 +149,18 @@ jobs:
           echo '```' >> verify.md
           for so in "$tmp"/lib/*/libsamp.so; do
             abi=$(basename "$(dirname "$so")")
-            exported=$(readelf --dyn-syms -W "$so" | awk '{print $8}' | grep -cx 'JNI_OnLoad' || true)
-            if [ "$exported" -ge 1 ]; then
-              echo "OK   $abi: JNI_OnLoad exported" | tee -a verify.md
+            line=$(readelf --dyn-syms -W "$so" | awk '$8=="JNI_OnLoad"' | head -1 || true)
+            mangled=$(readelf --dyn-syms -W "$so" | awk '$8 ~ /^_Z.*JNI_OnLoad/' | head -1 || true)
+
+            echo "$abi -> ${line:-<absent>}" | tee -a verify.md
+            [ -n "$mangled" ] && echo "   (also present: $mangled)" | tee -a verify.md
+
+            # A usable entry point must be a GLOBAL symbol with DEFAULT
+            # visibility, otherwise dlsym() will not resolve it.
+            if [ -n "$line" ] && echo "$line" | grep -q 'GLOBAL' && echo "$line" | grep -q 'DEFAULT'; then
+              echo "OK   $abi: JNI_OnLoad is GLOBAL/DEFAULT" | tee -a verify.md
             else
-              echo "FAIL $abi: JNI_OnLoad NOT exported" | tee -a verify.md
+              echo "FAIL $abi: JNI_OnLoad missing or not exported" | tee -a verify.md
               status=1
             fi
           done
@@ -226,6 +233,8 @@ jobs:
             echo '* Built by GitHub Actions'
             echo ''
             cat apk-info.md
+            echo ''
+            [ -f verify.md ] && cat verify.md || true
           } > release-notes.md
 
           TAG="build-${GITHUB_RUN_NUMBER}"
