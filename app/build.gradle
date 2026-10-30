@@ -70,12 +70,10 @@ android {
     packagingOptions {
         jniLibs {
             excludes += ['META-INF/*']
-            // AGP strips native libraries before packaging them, and a stripped
-            // libsamp.so cannot answer the only question a crash asks: which
-            // function at which offset. The symbol table costs about a megabyte
-            // and turns "libsamp.so + 0x1b9bfc" into a name - and the system's
-            // own tombstone shows one too. Kept for this library only.
-            keepDebugSymbols += '**/libsamp.so'
+            // Deliberately NOT keepDebugSymbols: keeping the debug information
+            // in the APK pushed it from 65 MB to about 90 MB, and the game
+            // already runs against a 2 GB device. The symbol map reads the
+            // unstripped copy that CMake leaves in the build tree instead.
         }
         resources {
             excludes += ['META-INF/*']
