@@ -495,8 +495,10 @@ void CNetGame::ProcessConnecting()
 {
 	if (GetTickCount() - m_dwLastConnectAttempt > 1000/*3000*/)
 	{
-		//if (pUI) pUI->chat()->addDebugMessage("Connecting to %s:%d...", m_szHostOrIp, m_iPort);
-		if (pUI) pUI->chat()->addDebugMessage("Connecting to Server...");
+		// The address is on the screen, not only in the log: if the line says a
+		// host the player did not configure, settings.ini was not the file that
+		// was read, and that is visible without a log at all.
+		if (pUI) pUI->chat()->addDebugMessage("Connecting to %s:%d...", m_szHostOrIp, m_iPort);
 
 		// The address comes from settings.ini, so it has to be in the log: this
 		// line is what tells a wrong host from a server that never answers.
