@@ -173,6 +173,8 @@ struct sigaction act_old;
 struct sigaction act1_old;
 struct sigaction act2_old;
 struct sigaction act3_old;
+struct sigaction act4_old;
+struct sigaction act5_old;
 
 // ---------------------------------------------------------------------------
 // Stage tracking and crash reporting
@@ -236,7 +238,12 @@ static void SsWriteAll(int fd, const char* buf, size_t len)
 }
 
 // Async-signal-safe: no allocation, no stdio.
-static void ReportFatal(int signum, siginfo_t* info, void* contextPtr)
+//
+// [fatal] decides whether the signal is re-raised with the default action. The
+// crash signals always are. SIGQUIT and SIGTERM are not: SIGQUIT is what the
+// system sends to dump the stack of an app it considers stuck, and killing the
+// process there would turn a survivable ANR dump into a dead app.
+static void ReportCrash(int signum, siginfo_t* info, void* contextPtr, bool fatal)
 {
 	char buf[512];
 	char* p = buf;
@@ -271,6 +278,7 @@ static void ReportFatal(int signum, siginfo_t* info, void* contextPtr)
 	p = SsStr(p, " stage=");
 	p = SsStr(p, g_currentStage ? g_currentStage : "?");
 	p = SsStr(p, "\n");
+	*p = 0;   // __android_log_write() below needs a terminated string
 
 	const int fd = open(kCrashLogPath, O_WRONLY | O_CREAT | O_APPEND, 0660);
 	if (fd >= 0)
@@ -281,6 +289,9 @@ static void ReportFatal(int signum, siginfo_t* info, void* contextPtr)
 	}
 
 	__android_log_write(ANDROID_LOG_FATAL, "SAMP", buf);
+
+	if (!fatal)
+		return;
 
 	// Let the system produce its own tombstone as well, then die for real.
 	signal(signum, SIG_DFL);
@@ -371,9 +382,9 @@ static void LogPreviousStage()
 // exactly when it was needed most and the start died without a single line.
 static void HandleFatal(int signum, siginfo_t* info, void* contextPtr)
 {
-	ReportFatal(signum, info, contextPtr);
+	ReportCrash(signum, info, contextPtr, true);
 
-	// ReportFatal() re-raises with the default action; reaching this point means
+	// ReportCrash() re-raises with the default action; reaching this point means
 	// the signal was blocked, so fall back to the previous handler.
 	const struct sigaction* old = nullptr;
 	switch (signum)
@@ -382,6 +393,7 @@ static void HandleFatal(int signum, siginfo_t* info, void* contextPtr)
 		case SIGABRT: old = &act1_old; break;
 		case SIGFPE:  old = &act2_old; break;
 		case SIGBUS:  old = &act3_old; break;
+		case SIGILL:  old = &act5_old; break;
 		default: break;
 	}
 
@@ -407,6 +419,16 @@ void handler2(int signum, siginfo_t *info, void* contextPtr)
 void handler3(int signum, siginfo_t *info, void* contextPtr)
 {
 	HandleFatal(signum, info, contextPtr);
+}
+
+// SIGQUIT (the system asking for a stack dump of a "stuck" app) and SIGTERM are
+// recorded but never turned into a death by this code.
+void handlerSoft(int signum, siginfo_t *info, void* contextPtr)
+{
+	ReportCrash(signum, info, contextPtr, false);
+
+	if (act4_old.sa_sigaction)
+		act4_old.sa_sigaction(signum, info, contextPtr);
 }
 
 void DoInitStuff()
@@ -653,14 +675,20 @@ extern "C" JNIEXPORT jint JNICALL JNI_OnLoad(JavaVM* vm, void* reserved)
 	act3.sa_flags = SA_SIGINFO;
 	sigaction(SIGBUS, &act3, &act3_old);
 
-	// SIGILL and SIGTERM are crashes too, and SIGQUIT is what the system sends
-	// when it considers the app stuck; all of them were invisible before.
+	// SIGILL is a crash like the others. SIGQUIT and SIGTERM are the signals the
+	// system sends to a "stuck" app: recorded, then handed to the previous
+	// handler - the process must not be killed by this code.
+	struct sigaction act5;
+	act5.sa_sigaction = handler;
+	sigemptyset(&act5.sa_mask);
+	act5.sa_flags = SA_SIGINFO;
+	sigaction(SIGILL, &act5, &act5_old);
+
 	struct sigaction act4;
-	act4.sa_sigaction = handler;
+	act4.sa_sigaction = handlerSoft;
 	sigemptyset(&act4.sa_mask);
 	act4.sa_flags = SA_SIGINFO;
-	sigaction(SIGILL, &act4, nullptr);
-	sigaction(SIGTERM, &act4, nullptr);
+	sigaction(SIGTERM, &act4, &act4_old);
 	sigaction(SIGQUIT, &act4, nullptr);
 
 	// Report where the previous run stopped before this one goes any further.
