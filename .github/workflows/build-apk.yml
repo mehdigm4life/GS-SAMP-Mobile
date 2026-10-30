@@ -188,6 +188,39 @@ jobs:
             --title "Build failure (run ${{ github.run_number }})" \
             --body-file /tmp/body.md || true
 
+      # Proof that the diagnostics really moved: the constant must be present
+      # in both the compiled Java (classes*.dex) and libsamp.so.
+      - name: Verify diagnostics path in the APK
+        run: |
+          set -euo pipefail
+          APK=$(find app/build/outputs/apk/debug -name '*.apk' | head -1)
+          tmp=$(mktemp -d)
+          unzip -o -q "$APK" 'classes*.dex' 'lib/*/libsamp.so' -d "$tmp"
+
+          status=0
+          { echo '### Diagnostics path check'; echo '```'; } > pathcheck.md
+
+          dex_dir=$(strings -a "$tmp"/classes*.dex | grep -c '/storage/emulated/0/GS-SAMP' || true)
+          dex_file=$(strings -a "$tmp"/classes*.dex | grep -cx 'logcat.txt' || true)
+          echo "dex  : GS-SAMP dir=$dex_dir  logcat.txt=$dex_file" >> pathcheck.md
+          [ "$dex_dir" -ge 1 ] && [ "$dex_file" -ge 1 ] || status=1
+
+          for so in "$tmp"/lib/*/libsamp.so; do
+            abi=$(basename "$(dirname "$so")")
+            n_dir=$(strings -a "$so" | grep -c '/storage/emulated/0/GS-SAMP' || true)
+            n_file=$(strings -a "$so" | grep -cx 'logcat.txt' || true)
+            echo "libsamp $abi: GS-SAMP dir=$n_dir  logcat.txt=$n_file" >> pathcheck.md
+            [ "$n_dir" -ge 1 ] && [ "$n_file" -ge 1 ] || status=1
+          done
+
+          android_data=$(strings -a "$tmp"/classes*.dex "$tmp"/lib/*/libsamp.so | grep -c 'Android/data' || true)
+          echo "legacy Android/data references: $android_data (expected 0)" >> pathcheck.md
+
+          echo '```' >> pathcheck.md
+          cat pathcheck.md
+          cat pathcheck.md >> "$GITHUB_STEP_SUMMARY"
+          exit $status
+
       - name: Inspect APK
         if: success()
         run: |
@@ -235,6 +268,8 @@ jobs:
             cat apk-info.md
             echo ''
             [ -f verify.md ] && cat verify.md || true
+            echo ''
+            [ -f pathcheck.md ] && cat pathcheck.md || true
           } > release-notes.md
 
           TAG="build-${GITHUB_RUN_NUMBER}"
