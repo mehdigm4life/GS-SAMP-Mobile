@@ -1,9 +1,5 @@
 package com.samp.mobile.cache;
 
-import com.sun.net.httpserver.HttpExchange;
-import com.sun.net.httpserver.HttpHandler;
-import com.sun.net.httpserver.HttpServer;
-
 import org.junit.After;
 import org.junit.Before;
 import org.junit.Rule;
@@ -14,13 +10,10 @@ import java.io.File;
 import java.io.FileOutputStream;
 import java.io.IOException;
 import java.io.OutputStream;
-import java.net.InetSocketAddress;
 import java.nio.file.Files;
+import java.security.MessageDigest;
 import java.util.LinkedHashMap;
 import java.util.Map;
-import java.util.concurrent.ConcurrentHashMap;
-import java.util.concurrent.Executors;
-import java.util.concurrent.atomic.AtomicInteger;
 
 import static org.junit.Assert.assertEquals;
 import static org.junit.Assert.assertFalse;
@@ -40,58 +33,42 @@ public class CacheManagerTest {
     @Rule
     public TemporaryFolder temp = new TemporaryFolder();
 
-    private HttpServer server;
-    private int port;
+    private FakeServer server;
     private File root;
 
-    private final Map<String, byte[]> bodies = new LinkedHashMap<>();
-    private final Map<String, AtomicInteger> hits = new ConcurrentHashMap<>();
+    private final Map<String, byte[]> bodies = new LinkedHashMap<String, byte[]>();
 
     @Before
     public void setUp() throws Exception {
         root = temp.newFolder("GTA");
 
-        server = HttpServer.create(new InetSocketAddress("127.0.0.1", 0), 0);
-        server.createContext("/", new HttpHandler() {
+        server = new FakeServer(new FakeServer.Handler() {
             @Override
-            public void handle(HttpExchange exchange) throws IOException {
-                String path = exchange.getRequestURI().getPath();
-                hits.computeIfAbsent(path, k -> new AtomicInteger()).incrementAndGet();
-
-                if ("/client_config.json".equals(path)) {
-                    write(exchange, 200, ("{\"client_config\":{\"version_code\":1,"
+            public void handle(FakeServer.Request request, OutputStream out) throws IOException {
+                if ("/client_config.json".equals(request.path)) {
+                    FakeServer.sendBody(out, 200, ("{\"client_config\":{\"version_code\":1,"
                             + "\"url_cache_files\":\"files.json\"}}").getBytes("UTF-8"));
                     return;
                 }
-
-                byte[] body = bodies.get(path);
+                byte[] body = bodies.get(request.path);
                 if (body == null) {
-                    write(exchange, 404, "not found".getBytes("UTF-8"));
+                    FakeServer.sendNotFound(out);
                     return;
                 }
-                write(exchange, 200, body);
+                FakeServer.sendBody(out, 200, body);
             }
         });
-        server.setExecutor(Executors.newCachedThreadPool());
-        server.start();
-        port = server.getAddress().getPort();
-    }
-
-    private static void write(HttpExchange exchange, int code, byte[] body) throws IOException {
-        exchange.sendResponseHeaders(code, body.length);
-        OutputStream out = exchange.getResponseBody();
-        out.write(body);
-        out.close();
-        exchange.close();
     }
 
     @After
     public void tearDown() {
         if (server != null) {
-            server.stop(0);
+            server.close();
             server = null;
         }
     }
+
+    // ------------------------------------------------------------------
 
     private static byte[] payload(int size, byte seed) {
         byte[] data = new byte[size];
@@ -102,22 +79,23 @@ public class CacheManagerTest {
     }
 
     private static String md5(byte[] data) {
-        return HashUtil.toHex(md5Bytes(data));
-    }
-
-    private static byte[] md5Bytes(byte[] data) {
         try {
-            java.security.MessageDigest digest =
-                    java.security.MessageDigest.getInstance("MD5");
-            return digest.digest(data);
+            MessageDigest digest = MessageDigest.getInstance("MD5");
+            return HashUtil.toHex(digest.digest(data));
         } catch (Exception e) {
             throw new IllegalStateException(e);
         }
     }
 
+    private static String entry(String path, byte[] body) {
+        return "{\"name\":\"" + path + "\",\"path\":\"" + path + "\",\"size\":"
+                + body.length + ",\"url\":\"/files/" + path + "\",\"md5\":\""
+                + md5(body) + "\"}";
+    }
+
     /**
-     * Builds the manifest for three usable files plus one texture variant that
-     * must be skipped on a DXT device.
+     * Three usable files plus one texture variant that must be skipped on a DXT
+     * device.
      */
     private void publishManifest() throws IOException {
         byte[] a = payload(2048, (byte) 1);
@@ -132,21 +110,16 @@ public class CacheManagerTest {
         bodies.put("/files/texdb/x.etc.dat", etc);
 
         String list = "{\"files\":["
-                + entry("data/a.dat", a, md5(a)) + ","
-                + entry("data/b.dat", b, md5(b)) + ","
-                + entry("models/c.dat", c, md5(c)) + ","
-                + entry("texdb/x.etc.dat", etc, md5(etc))
+                + entry("data/a.dat", a) + ","
+                + entry("data/b.dat", b) + ","
+                + entry("models/c.dat", c) + ","
+                + entry("texdb/x.etc.dat", etc)
                 + "]}";
         bodies.put("/files.json", list.getBytes("UTF-8"));
     }
 
-    private static String entry(String path, byte[] body, String md5) {
-        return "{\"name\":\"" + path + "\",\"path\":\"" + path + "\",\"size\":"
-                + body.length + ",\"url\":\"/files/" + path + "\",\"md5\":\"" + md5 + "\"}";
-    }
-
     private String configUrl() {
-        return "http://127.0.0.1:" + port + "/client_config.json";
+        return server.url("/client_config.json");
     }
 
     private static void writeFile(File file, byte[] data) throws IOException {
@@ -169,6 +142,21 @@ public class CacheManagerTest {
         return manager.getStage() == wanted;
     }
 
+    private static void assertArrayEqualsFile(byte[] expected, File actual) throws IOException {
+        assertTrue("missing file: " + actual, actual.isFile());
+        byte[] got = Files.readAllBytes(actual.toPath());
+        assertEquals("length of " + actual.getName(), expected.length, got.length);
+        for (int i = 0; i < expected.length; i++) {
+            if (expected[i] != got[i]) {
+                assertEquals("content differs at byte " + i, expected[i], got[i]);
+            }
+        }
+    }
+
+    // ------------------------------------------------------------------
+    // Tests
+    // ------------------------------------------------------------------
+
     @Test
     public void installsMissingFilesRepairsCorruptOnesAndSkipsOtherGpuPacks() throws Exception {
         publishManifest();
@@ -184,22 +172,8 @@ public class CacheManagerTest {
         // models/c.dat is missing entirely.
 
         CacheManager manager = new CacheManager(root, configUrl(), null, GpuDetector.DXT);
-
-        final int[] completeEvents = new int[]{0};
-        manager.setListener(new CacheManager.Listener() {
-            @Override
-            public void onStats(CacheManager.Stats stats) {
-                if (stats.stage == CacheManager.Stage.COMPLETE) {
-                    completeEvents[0]++;
-                }
-            }
-
-            @Override
-            public void onLog(String line) {
-            }
-        });
-
         manager.start();
+
         assertTrue("installer never reported COMPLETE",
                 awaitStage(manager, CacheManager.Stage.COMPLETE, 90000));
 
@@ -212,12 +186,12 @@ public class CacheManagerTest {
         assertFalse("wrong GPU texture pack was downloaded",
                 new File(root, "texdb/x.etc.dat").exists());
 
-        // The intact file was never fetched, the broken two were.
+        // The intact file was never fetched; the broken two were, once each.
         assertEquals("intact file must not be downloaded again",
-                0, count("/files/data/a.dat"));
-        assertEquals(1, count("/files/data/b.dat"));
-        assertEquals(1, count("/files/models/c.dat"));
-        assertTrue("the whole manifest was fetched", count("/files.json") >= 1);
+                0, server.hits("/files/data/a.dat"));
+        assertEquals(1, server.hits("/files/data/b.dat"));
+        assertEquals(1, server.hits("/files/models/c.dat"));
+        assertTrue("the whole manifest was fetched", server.hits("/files.json") >= 1);
         assertFalse("partial files left behind", new File(root, "data/b.dat.part").exists());
     }
 
@@ -233,15 +207,15 @@ public class CacheManagerTest {
         manager.start();
         assertTrue(awaitStage(manager, CacheManager.Stage.COMPLETE, 60000));
 
-        assertEquals(0, count("/files/data/a.dat"));
-        assertEquals(0, count("/files/data/b.dat"));
-        assertEquals(0, count("/files/models/c.dat"));
-        assertEquals(0, count("/files/texdb/x.etc.dat"));
+        assertEquals(0, server.hits("/files/data/a.dat"));
+        assertEquals(0, server.hits("/files/data/b.dat"));
+        assertEquals(0, server.hits("/files/models/c.dat"));
+        assertEquals(0, server.hits("/files/texdb/x.etc.dat"));
     }
 
     @Test
     public void unreachableServerIsReportedAsFailureNotAsSuccess() throws Exception {
-        // Port with no listener: the installer must fail loudly instead of
+        // A port with no listener: the installer must fail loudly instead of
         // letting the game start with a cache it never verified.
         CacheManager manager = new CacheManager(root,
                 "http://127.0.0.1:1/client_config.json", null, GpuDetector.DXT);
@@ -249,21 +223,5 @@ public class CacheManagerTest {
 
         assertTrue("an unreachable server must end in FAILED",
                 awaitStage(manager, CacheManager.Stage.FAILED, 60000));
-    }
-
-    private int count(String path) {
-        AtomicInteger counter = hits.get(path);
-        return counter == null ? 0 : counter.get();
-    }
-
-    private static void assertArrayEqualsFile(byte[] expected, File actual) throws IOException {
-        assertTrue("missing file: " + actual, actual.isFile());
-        byte[] got = Files.readAllBytes(actual.toPath());
-        assertEquals("length of " + actual.getName(), expected.length, got.length);
-        for (int i = 0; i < expected.length; i++) {
-            if (expected[i] != got[i]) {
-                assertEquals("content differs at byte " + i, expected[i], got[i]);
-            }
-        }
     }
 }

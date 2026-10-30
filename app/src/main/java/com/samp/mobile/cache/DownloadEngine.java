@@ -374,9 +374,27 @@ public class DownloadEngine {
         return true;
     }
 
+    private static boolean isAlreadyCorrect(RemoteFile file, File target) {
+        if (!target.isFile()) {
+            return false;
+        }
+        if (file.getSize() >= 0 && target.length() != file.getSize()) {
+            return false;
+        }
+        if (file.hasHash()) {
+            String actual = HashUtil.compute(target, file.getHashType());
+            return actual != null && actual.equalsIgnoreCase(file.getHash().trim());
+        }
+        return file.getSize() >= 0;
+    }
+
     private Outcome attemptFile(RemoteFile file, File target, File part) {
         // Already correct: nothing to do.
-        if (target.exists() && file.getSize() >= 0 && target.length() == file.getSize()) {
+        //
+        // The length alone is not enough. A file can be truncated *and* padded,
+        // or simply overwritten with the same number of bytes, so whenever the
+        // manifest publishes a checksum it is the checksum that decides.
+        if (target.exists() && isAlreadyCorrect(file, target)) {
             if (part.exists()) {
                 //noinspection ResultOfMethodCallIgnored
                 part.delete();
