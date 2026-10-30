@@ -225,8 +225,8 @@ public final class ManifestParser {
     }
 
     /**
-     * The cache ships every texture database in four flavours, and the game opens
-     * exactly one of them at startup:
+     * Every texture database the server publishes is installed, in every flavour
+     * it publishes.
      *
      * <pre>
      *   texdb/mobile/mobile.dxt      + texdb/mobile/mobile.dxt.tmb
@@ -235,47 +235,22 @@ public final class ManifestParser {
      *                                  texdb/mobile/mobile.unc.tmb
      * </pre>
      *
-     * Only files under {@code texdb/} carry a GPU flavour; everything else in the
-     * cache is shared.
+     * This used to filter by the family detected for the GPU. That is wrong:
+     * TextureDatabaseRuntime::Load() re-selects the format itself after the
+     * caller passes one, and it ignores the value it was given. The device log
+     * proves it - the launcher asked for DF_PVR and the engine still opened
+     * texdb/player/player.dxt.tmb - so a GPU-filtered cache is missing the
+     * index the engine opens and the run ends in
+     * TextureDatabaseRuntime::SortEntries (SIGSEGV, fault address 0x133f/0x6f1)
+     * right after the loading screen.
      *
-     * The token match is deliberately not {@code contains(".dxt.")}: the data
-     * file is named {@code mobile.dxt} and has no trailing dot, so that test kept
-     * all three data files while filtering only the indices - which downloaded
-     * two thirds more data than needed and still left the game looking for an
-     * index that was never fetched.
+     * The server is the authority for which flavour the build expects, so the
+     * client downloads all of them instead of guessing.
      *
-     * @param gpuType 1 = DXT, 2 = ETC, 3 = PVR; any other value keeps everything
+     * @param gpuType ignored since 0.8.2.9, kept for call sites and tests
      */
     public static boolean matchesGpu(String path, int gpuType) {
-        if (path == null) {
-            return false;
-        }
-        String lower = path.toLowerCase(Locale.US);
-
-        if (gpuType <= 0) {
-            return true;
-        }
-        if (!lower.startsWith("texdb/") && !lower.contains("/texdb/")) {
-            // Not a texture database: no per-GPU variants exist here.
-            return true;
-        }
-
-        boolean dxt = hasFormatToken(lower, "dxt");
-        boolean pvr = hasFormatToken(lower, "pvr");
-        boolean etc = hasFormatToken(lower, "etc");
-
-        if (!dxt && !pvr && !etc) {
-            // e.g. mobile.unc.tmb or a plain texture: shared by every device.
-            return true;
-        }
-
-        if (dxt) {
-            return gpuType == GpuDetector.DXT;
-        }
-        if (pvr) {
-            return gpuType == GpuDetector.PVR;
-        }
-        return gpuType == GpuDetector.ETC;
+        return path != null && !path.isEmpty();
     }
 
     /**

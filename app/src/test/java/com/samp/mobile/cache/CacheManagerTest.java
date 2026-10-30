@@ -211,13 +211,18 @@ public class CacheManagerTest {
         assertArrayEqualsFile(bodies.get("/files/texdb/mobile/mobile.dxt.tmb"),
                 new File(root, "texdb/mobile/mobile.dxt.tmb"));
 
-        // The PVR and ETC copies exist on the server but must not be downloaded.
-        assertFalse("wrong GPU texture pack was downloaded",
-                new File(root, "texdb/mobile/mobile.pvr").exists());
-        assertFalse("wrong GPU texture pack was downloaded",
-                new File(root, "texdb/mobile/mobile.etc").exists());
-        assertEquals(0, server.hits("/files/texdb/mobile/mobile.pvr"));
-        assertEquals(0, server.hits("/files/texdb/mobile/mobile.etc"));
+        // Every family the server publishes is installed: Load() re-selects the
+        // format itself, so a missing family is a crash after the loading screen.
+        assertArrayEqualsFile(bodies.get("/files/texdb/mobile/mobile.pvr"),
+                new File(root, "texdb/mobile/mobile.pvr"));
+        assertArrayEqualsFile(bodies.get("/files/texdb/mobile/mobile.pvr.tmb"),
+                new File(root, "texdb/mobile/mobile.pvr.tmb"));
+        assertArrayEqualsFile(bodies.get("/files/texdb/mobile/mobile.etc"),
+                new File(root, "texdb/mobile/mobile.etc"));
+        assertArrayEqualsFile(bodies.get("/files/texdb/mobile/mobile.unc.tmb"),
+                new File(root, "texdb/mobile/mobile.unc.tmb"));
+        assertEquals(1, server.hits("/files/texdb/mobile/mobile.pvr"));
+        assertEquals(1, server.hits("/files/texdb/mobile/mobile.etc"));
 
         // The intact file was never fetched; the broken two were, once each.
         assertEquals("intact file must not be downloaded again",
@@ -232,14 +237,10 @@ public class CacheManagerTest {
     public void secondRunDownloadsNothingWhenCacheIsIntact() throws Exception {
         publishManifest();
 
-        // Everything the DXT device needs is already on disk.
+        // Everything the manifest lists is already on disk.
         for (Map.Entry<String, byte[]> e : bodies.entrySet()) {
             if (e.getKey().startsWith("/files/")) {
                 String path = e.getKey().substring("/files/".length());
-                if (path.endsWith(".pvr") || path.endsWith(".pvr.tmb")
-                        || path.endsWith(".etc") || path.endsWith(".etc.tmb")) {
-                    continue;  // another GPU family: not part of this cache
-                }
                 writeFile(new File(root, path), e.getValue());
             }
         }

@@ -59,21 +59,26 @@ client_config.json  ->  file list  ->  filter for this device's GPU
 
 The manifest is read from the project's own endpoint
 (`https://samp-mobile.shop/client_config.json`), which points at the file list.
-Texture packs are filtered per GPU family (`.dxt` / `.etc` / `.pvr`) so a device
-downloads only the variant it can render. The family is chosen by probing the
-GL extensions (`GL_IMG_texture_compression_pvrtc` first, then S3TC/ATC, then
-ETC1) - not by the renderer name. A vendor string such as "PowerVR" says nothing
-about which formats the driver can sample, so the extensions are the only usable
-signal.
 
-On the device side the game must open the *same* family that was installed. The
-engine used to resolve `DF_Default` from its own capability flags
-(`has_s3tc` / `has_pvrtc` / `has_atitc` in `batexdb`) and on the PowerVR Rogue
-GE8320 (Xiaomi M2006C3MG) that probe reports DXT even though the driver has no
-S3TC at all: the engine asked for `texdb/mobile/mobile.dxt.tmb`, the file was not
-in the cache, and `Load()` dereferenced the null database in
-`TextureDatabaseRuntime::SortEntries` - the SIGSEGV (fault address `0x6f1`) right
-after the loading screen. `libsamp` therefore no longer trusts that probe:
+**Every texture family the server publishes is installed** (`.dxt`, `.pvr`,
+`.etc`, `.unc`, `.360`, `.ps3`). Filtering them by the detected GPU is what broke
+the game: `TextureDatabaseRuntime::Load()` re-selects the format internally after
+the caller passes one and ignores the value it was given, so on a PowerVR device
+the launcher asked for PVR while the engine opened `texdb/player/player.dxt.tmb`
+and then `texdb/mobile/mobile.dxt.tmb`. Those indices were filtered out of the
+cache, and `Load()` dereferenced the null database in
+`TextureDatabaseRuntime::SortEntries` (SIGSEGV) right after the loading screen.
+The server is the authority for the flavour the build expects, so the client
+downloads all of them and the installer logs every `texdb/` entry it found.
+
+The requested format is not honoured either. `TextureDatabaseRuntime::Load()`
+stores it at `[db+0xa0]`, hands it to the format selection at `0x220700`, and
+that call rewrites it - on the PowerVR Rogue GE8320 (Xiaomi M2006C3MG) every
+database ends up as DXT, which is why the engine asked for
+`texdb/player/player.dxt.tmb` even though the launcher had passed `DF_PVR`. The
+crash itself is a null database dereference in
+`TextureDatabaseRuntime::SortEntries` (SIGSEGV `0x6f1` / `0x133f`) as soon as the
+index the engine opens is missing. `libsamp` therefore keeps two safety nets:
 
 * `TextureDatabaseRuntime::ResolveFormatForDevice()` opens only a family whose
   `texdb/<db>/<db>.<family>.tmb` really exists on disk (requested family first,
