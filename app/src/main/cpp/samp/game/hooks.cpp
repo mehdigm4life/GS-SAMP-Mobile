@@ -1414,6 +1414,54 @@ stFile* NvFOpen(const char* r0, const char* r1, int r2, int r3)
 #endif
     st->isFileExist = false;
 
+    // ---- texture database family fallback ----------------------------------
+    // libGTASA resolves the texture family by itself and, on every device seen
+    // so far, opens texdb/<db>/<db>.dxt.<ext> whatever format the caller asks
+    // for. The server does not publish every database in that family (player,
+    // playerhi and menu only exist as .pvr), and a missing index makes
+    // TextureDatabaseRuntime::SortEntries dereference a null database.
+    //
+    // The file that is really installed is served instead. Each entry of a .tmb
+    // carries its own texture format, so the published data is used as-is and
+    // the renderer never sees a format it was not built for.
+    if (!strncmp(r1, "texdb/", 6))
+    {
+        static const char *familyTokens[3] = { ".dxt.", ".pvr.", ".etc." };
+
+        const char *hit = nullptr;
+        for (int i = 0; i < 3; ++i)
+        {
+            if (strstr(r1, familyTokens[i]))
+            {
+                hit = familyTokens[i];
+                break;
+            }
+        }
+
+        if (hit && access(path, R_OK) != 0)
+        {
+            char alt[0x100];
+            const size_t prefix = (size_t)(strstr(r1, hit) - r1);
+
+            for (int i = 0; i < 3; ++i)
+            {
+                if (familyTokens[i] == hit)
+                    continue;
+
+                snprintf(alt, sizeof(alt), "%s%.*s%s%s",
+                         g_pszStorage, (int)prefix, r1,
+                         familyTokens[i], strstr(r1, hit) + strlen(hit));
+
+                if (access(alt, R_OK) == 0)
+                {
+                    FLog("texdb family fallback: %s -> %s", r1, alt);
+                    strncpy(path, alt, sizeof(path) - 1);
+                    break;
+                }
+            }
+        }
+    }
+
     FILE *f  = fopen(path, "rb");
 
     if(f)

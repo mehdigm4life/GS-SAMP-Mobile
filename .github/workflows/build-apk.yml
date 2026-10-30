@@ -397,8 +397,8 @@ jobs:
             fi
             for needle in \
               "texdb %s: opening .%s (installed on disk)" \
-              "texdb %s: no .%s index installed (on disk: %s) - engine load skipped" \
-              "texdb %s: no .dxt index installed, keeping the default resolution" \
+              "texdb %s: no index installed at all, keeping the requested family" \
+              "texdb family fallback: %s -> %s" \
               "texdb %s: not installed, skipping the engine load" ; do
               count=$(strings -a "$so" | grep -c -F -- "$needle" || true)
               echo "$count  $abi  $needle" | tee -a texdb.md

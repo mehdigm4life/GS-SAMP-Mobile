@@ -87,6 +87,11 @@ index the engine opens is missing. `libsamp` therefore keeps two safety nets:
   was never installed instead of letting `Load()` crash on it,
 * both decisions are appended to `/storage/emulated/0/GS-SAMP/logcat.txt`, so the
   family the game really opened is verifiable from the diagnostics file,
+* `NvFOpen` serves `texdb/<db>/<db>.<installed family>.<ext>` when the engine
+  asks for a family that was never published for that database (`player`,
+  `playerhi` and `menu` only exist as `.pvr`). The `.toc` of both families have
+  the same size, so the index layout is platform independent and each entry
+  carries its own texture format - the published data is used as-is,
 * the launcher gate accepts any installed `mobile.<family>.tmb` for the same
   reason, and only opens the installer when no family is present at all.
 
