@@ -27,6 +27,7 @@ import com.samp.mobile.game.SAMP;
 import com.samp.mobile.launcher.MainActivity;
 import com.samp.mobile.launcher.util.ButtonAnimator;
 import com.samp.mobile.launcher.util.SAMPServerInfo;
+import com.samp.mobile.launcher.util.SettingsIni;
 import com.samp.mobile.launcher.util.SharedPreferenceCore;
 
 import org.ini4j.Wini;
@@ -93,7 +94,7 @@ public class ServerInformationFragment extends Dialog {
         mConnect.setOnClickListener(new View.OnClickListener() {
             @Override
             public void onClick(View view) {
-                File file = new File(activity.getExternalFilesDir(null) + "/SAMP/settings.ini");
+                File file = SettingsIni.resolve(activity);
                 if(file.exists()) {
                     try {
                         Wini wini = new Wini(file);

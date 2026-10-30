@@ -95,6 +95,33 @@ index the engine opens is missing. `libsamp` therefore keeps two safety nets:
 * the launcher gate accepts any installed `mobile.<family>.tmb` for the same
   reason, and only opens the installer when no family is present at all.
 
+### The server address comes from settings.ini
+
+`[client] host` and `[client] port` in
+`/storage/emulated/0/GTA/SAMP/settings.ini` are the address the client dials.
+Both used to be ignored: `DoInitStuff()` constructed `CNetGame` with a literal
+`"94.23.168.153", 2305`, so no server configured in the file could ever be
+reached, and the server browser wrote its choice to
+`getExternalFilesDir()/SAMP/settings.ini` - a folder `libsamp` never opens.
+
+Now:
+
+* the address is read on every start, and `net: configured server <host>:<port>
+  (from <storage>SAMP/settings.ini)` names it in the log,
+* `host` accepts `1.2.3.4`, `1.2.3.4:7777`, `host.name`, quotes, spaces and a
+  `samp://`/`udp://` prefix; a port written inside `host` wins over the port key,
+* `RakClient::Connect()` tests the host with `inet_pton` instead of
+  `host[0] < '0' || host[0] > '2'` - that test sent every literal address that
+  did not start with 0, 1 or 2 to DNS, and a failed lookup replaced the host with
+  a null pointer,
+* a lookup that fails now returns `false` (the caller retries) instead of
+  connecting to nothing, and the resolved address is logged,
+* every attempt and result is logged: `net: connect attempt <host>:<port>`,
+  `net: no response from ...`, `net: connection accepted by ...`,
+* `SettingsIni.resolve()` is the single path helper used by the server browser,
+  the settings screen and `ConfigValidator`, and it seeds the game's file from
+  the old location or the bundled asset when it is missing.
+
 ### Diagnosing a start that dies
 
 A session once ended right after `Loading script.img..` with nothing at all in
