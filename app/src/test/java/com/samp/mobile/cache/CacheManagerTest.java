@@ -364,7 +364,9 @@ public class CacheManagerTest {
         File victim = new File(root, "texdb/mobile/mobile.dxt.tmb");
         assertTrue("the file must exist after a successful install", victim.isFile());
         assertTrue("cannot delete the test file", victim.delete());
-        int hitsBefore = server.hits("/files/texdb/mobile/mobile.dxt.tmb");
+
+        int victimHitsBefore = server.hits("/files/texdb/mobile/mobile.dxt.tmb");
+        int healthyHitsBefore = server.hits("/files/data/a.dat");
 
         // A fresh manager is what the launcher creates on the next app start.
         CacheManager second = newManager(stateDir);
@@ -374,10 +376,11 @@ public class CacheManagerTest {
 
         assertTrue("the deleted file must be back", victim.isFile());
         assertArrayEqualsFile(bodies.get("/files/texdb/mobile/mobile.dxt.tmb"), victim);
-        assertEquals("it must be fetched exactly once",
-                hitsBefore + 1, server.hits("/files/texdb/mobile/mobile.dxt.tmb"));
+        assertEquals("it must be fetched exactly once more",
+                victimHitsBefore + 1, server.hits("/files/texdb/mobile/mobile.dxt.tmb"));
         // Nothing else had to move.
-        assertEquals(0, server.hits("/files/data/a.dat"));
+        assertEquals("a healthy file must not be downloaded again",
+                healthyHitsBefore, server.hits("/files/data/a.dat"));
     }
 
     @Test
@@ -391,6 +394,8 @@ public class CacheManagerTest {
         assertTrue(awaitStage(first, CacheManager.Stage.COMPLETE, 90000));
 
         File victim = new File(root, "data/b.dat");
+        int victimHitsBefore = server.hits("/files/data/b.dat");
+        int healthyHitsBefore = server.hits("/files/data/a.dat");
         byte[] expected = bodies.get("/files/data/b.dat");
         byte[] tampered = expected.clone();
         tampered[10] ^= 0x55;          // same length, different content
@@ -403,8 +408,9 @@ public class CacheManagerTest {
 
         assertArrayEqualsFile(expected, victim);
         assertEquals("the tampered file must be fetched again",
-                1, server.hits("/files/data/b.dat"));
-        assertEquals("healthy files must not be touched", 0, server.hits("/files/data/a.dat"));
+                victimHitsBefore + 1, server.hits("/files/data/b.dat"));
+        assertEquals("healthy files must not be touched",
+                healthyHitsBefore, server.hits("/files/data/a.dat"));
     }
 
     @Test
