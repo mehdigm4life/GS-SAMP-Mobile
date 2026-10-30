@@ -6,6 +6,16 @@ name: Build APK
 # resulting APK as a downloadable artifact.
 on:
   workflow_dispatch:
+    inputs:
+      dump_symbols:
+        description: "Publish the native symbol map / disassembly of libsamp.so as an issue"
+        type: boolean
+        default: false
+      symbol_offsets:
+        description: "Comma separated crash offsets to resolve (hex, e.g. 0x1b9bfc,0x1cc444)"
+        type: string
+        required: false
+        default: "0x1b9bfc,0x1cc444"
   push:
     branches: [ main ]
   pull_request:
@@ -206,6 +216,162 @@ jobs:
           chmod +x gradlew
           set -o pipefail
           ./gradlew --no-daemon --stacktrace --warning-mode all :app:assembleDebug 2>&1 | tee build.log
+
+      # Reading a crash needs the symbol table of the exact library that was
+      # built, and neither the APK nor the artifacts are reachable from every
+      # client. On demand this step publishes the answer where any client can
+      # read it: an issue with the candidate libraries, the nearest symbol, the
+      # source line and the disassembly around each offset.
+      - name: Publish the native symbol map as an issue
+        if: contains(github.event.head_commit.message, '[dump-symbols]') || (github.event_name == 'workflow_dispatch' && inputs.dump_symbols)
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          OFFSETS: ${{ inputs.symbol_offsets }}
+        run: |
+          set -uo pipefail
+
+          cat > /tmp/nearest.py <<'PYNEAREST'
+          import sys
+          off = int(sys.argv[1], 16)
+          best = None
+          for line in sys.stdin:
+              parts = line.split(None, 2)
+              if len(parts) != 3:
+                  continue
+              try:
+                  addr = int(parts[0], 16)
+              except ValueError:
+                  continue
+              if addr <= off:
+                  best = (addr, parts[2].strip())
+          if best:
+              print("nearest: %s (start 0x%x, +0x%x)" % (best[1], best[0], off - best[0]))
+          else:
+              print("nearest: none")
+          PYNEAREST
+
+          {
+            echo "Automated symbol map for run ${GITHUB_RUN_ID}, commit ${GITHUB_SHA}."
+            echo
+            echo "## Candidate libraries"
+            echo '```'
+            find app -name 'libsamp.so' -type f -printf '%s %p\n' 2>/dev/null | sort -rn | head -10
+            echo '```'
+          } > syms.md
+
+          APK=$(find app/build/outputs/apk/debug -name '*.apk' | head -1)
+          tmp=$(mktemp -d)
+          unzip -o -q "$APK" 'lib/arm64-v8a/libsamp.so' -d "$tmp" || true
+          NM=$(find "${ANDROID_HOME:-/usr/local/lib/android/sdk}/ndk" -name llvm-nm -type f 2>/dev/null | sort -r | head -1)
+          TOOLS=$(dirname "$NM")
+          {
+            echo
+            echo "## Tooling"
+            echo '```'
+            echo "$TOOLS"
+            ls -1 "$TOOLS" | grep -E '^(llvm-nm|llvm-objdump|llvm-addr2line|llvm-strings)$'
+            echo '```'
+          } >> syms.md
+
+          for so in "$tmp/lib/arm64-v8a/libsamp.so" $(find app -name 'libsamp.so' -type f 2>/dev/null); do
+            [ -f "$so" ] || continue
+            count=$("$NM" -C --defined-only "$so" 2>/dev/null | wc -l)
+            {
+              echo
+              echo "## $so"
+              echo '```'
+              echo "symbols: $count"
+              if [ "$count" -gt 100 ]; then
+                "$NM" -C --defined-only --numeric-sort "$so" > /tmp/nm.txt 2>/dev/null
+                for off in $(echo "$OFFSETS" | tr ',' ' '); do
+                  echo "--- $off ---"
+                  "$TOOLS/llvm-addr2line" -f -C -e "$so" "$off" 2>&1 | head -4
+                  python3 /tmp/nearest.py "$off" < /tmp/nm.txt
+                done
+                first=$(echo "$OFFSETS" | tr ',' ' ' | awk '{print $1}')
+                echo "--- disassembly around $first ---"
+                "$TOOLS/llvm-objdump" -d --no-show-raw-insn \
+                  --start-address=$((first - 0x120)) --stop-address=$((first + 0x30)) "$so" 2>&1 | tail -50
+              fi
+              echo '```'
+            } >> syms.md
+          done
+
+          gh issue create --title "Native symbol map - run ${GITHUB_RUN_ID}" --body-file syms.md \
+            || echo "::warning::could not create the issue"
+
+      # A crash line says "libsamp.so + 0x1b9bfc". Turning that offset into a
+      # function name needs the symbol table of the exact library that shipped,
+      # and the artifact is not readable from every client - a workflow notice
+      # is. The list below holds the offsets seen in the field; extend it when
+      # crash.txt reports a new one.
+      - name: Resolve native crash offsets
+        if: always()
+        run: |
+          set -uo pipefail
+          APK=$(find app/build/outputs/apk/debug -name '*.apk' | head -1)
+          if [ -z "$APK" ]; then
+            echo "::notice::no APK, nothing to resolve"
+            exit 0
+          fi
+          tmp=$(mktemp -d)
+          unzip -o -q "$APK" 'lib/arm64-v8a/libsamp.so' -d "$tmp" || true
+          NM=$(find "${ANDROID_HOME:-/usr/local/lib/android/sdk}/ndk" -name llvm-nm -type f 2>/dev/null | sort -r | head -1)
+          if [ -z "$NM" ]; then
+            echo "::notice::llvm-nm not found, skipping the symbol map"
+            exit 0
+          fi
+          echo "::notice::resolving with $NM"
+          # The library inside the APK is stripped: AGP removes the symbol table
+          # before packaging. The unstripped copy stays in the build tree, so the
+          # largest libsamp.so that still has symbols is the one to read.
+          SO=""
+          for candidate in "$tmp/lib/arm64-v8a/libsamp.so" \
+                           $(find app/build app/.cxx -name 'libsamp.so' -type f 2>/dev/null); do
+            [ -f "$candidate" ] || continue
+            count=$("$NM" -C --defined-only "$candidate" 2>/dev/null | wc -l)
+            echo "candidate: $candidate ($count symbols)"
+            if [ "$count" -gt 100 ]; then SO="$candidate"; fi
+          done
+          if [ -z "$SO" ]; then
+            echo "::notice::no unstripped libsamp.so in the build tree"
+            exit 0
+          fi
+          echo "reading symbols from $SO"
+          SO="$SO" NM="$NM" python3 - <<'PYMAP'
+          import bisect, os, subprocess
+          so, nm = os.environ["SO"], os.environ["NM"]
+          out = subprocess.run([nm, "-C", "--defined-only", "--numeric-sort", so],
+                               capture_output=True, text=True).stdout
+          syms = []
+          for line in out.splitlines():
+              parts = line.split(None, 2)
+              if len(parts) != 3:
+                  continue
+              try:
+                  syms.append((int(parts[0], 16), parts[2]))
+              except ValueError:
+                  continue
+          syms.sort()
+          if not syms:
+              print("::notice::libsamp.so carries no symbols")
+              raise SystemExit
+          addrs = [a for a, _ in syms]
+          print("::notice::libsamp.so symbols: %d, highest 0x%x" % (len(syms), addrs[-1]))
+          for target in (0x1b9bfc, 0x1cc444):
+              i = bisect.bisect_right(addrs, target) - 1
+              if i < 0:
+                  print("::notice::0x%x is below the first symbol" % target)
+                  continue
+              start, name = syms[i]
+              nxt = addrs[i + 1] if i + 1 < len(addrs) else start + 0x1000
+              print("::notice::0x%x -> %s (start 0x%x, +0x%x, size 0x%x)"
+                    % (target, name, start, target - start, nxt - start))
+          for lo, hi in ((0x1b9000, 0x1ba400), (0x1cb000, 0x1d0000)):
+              window = ["%s+0x%x" % (n, a - lo) for a, n in syms if lo <= a < hi]
+              print("::notice::window 0x%x-0x%x: %s" % (lo, hi, ", ".join(window[:12]) or "-"))
+          PYMAP
+
 
       # The raw Actions log is only reachable from the GitHub UI, so mirror the
       # failure tail into an issue where any API client can read it.
