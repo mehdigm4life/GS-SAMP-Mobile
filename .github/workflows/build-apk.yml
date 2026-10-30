@@ -116,7 +116,11 @@ jobs:
             for u in \
               https://jitpack.io/com/github/amitshekhariitbhu/Android-PRDownloader/1.0.1/Android-PRDownloader-1.0.1.pom \
               https://jitpack.io/com/github/amitshekhariitbhu/PRDownloader/1.0.1/PRDownloader-1.0.1.pom \
-              https://repo1.maven.org/maven2/com/mindorks/android/prdownloader/0.6.0/prdownloader-0.6.0.pom ; do
+              https://repo1.maven.org/maven2/com/mindorks/android/prdownloader/0.6.0/prdownloader-0.6.0.pom \
+              https://repo1.maven.org/maven2/com/joom/paranoid/paranoid-gradle-plugin/0.3.14/paranoid-gradle-plugin-0.3.14.pom \
+              https://repo1.maven.org/maven2/com/bytedance/android/shadowhook/1.0.9/shadowhook-1.0.9.pom \
+              https://repo1.maven.org/maven2/com/intuit/sdp/sdp-android/1.1.0/sdp-android-1.1.0.pom \
+              https://repo1.maven.org/maven2/com/google/firebase/firebase-crashlytics-ndk/18.3.5/firebase-crashlytics-ndk-18.3.5.pom ; do
               code=$(curl -s -o /dev/null -w '%{http_code}' -L --max-time 25 "$u" || echo ERR)
               echo "  $code  $u"
             done
