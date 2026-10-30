@@ -261,6 +261,32 @@ static char* SsDec(char* out, long v)
 	return out;
 }
 
+// The absolute pc means nothing without the module bases, and those move on
+// every start (ASLR). Subtracting the base recorded at load time turns a crash
+// into "libsamp.so + 0x1b9bfc", which is one lookup in llvm-nm away from a name
+// and is what identified the crash right after a server accepted the client.
+static const char* ModuleAndOffset(uintptr_t addr, uintptr_t* offsetOut)
+{
+	*offsetOut = 0;
+
+	struct { uintptr_t base; const char* name; } modules[] = {
+		{ g_libSAMP,  "libsamp.so" },
+		{ g_libGTASA, "libGTASA.so" },
+	};
+
+	for (const auto& m : modules)
+	{
+		// A generous window: libGTASA.so is ~9 MB, libsamp.so ~3.6 MB.
+		if (m.base != 0 && addr >= m.base && addr - m.base < 0x2000000)
+		{
+			*offsetOut = addr - m.base;
+			return m.name;
+		}
+	}
+
+	return "unknown";
+}
+
 static void SsWriteAll(int fd, const char* buf, size_t len)
 {
 	while (len)
@@ -281,7 +307,7 @@ static void SsWriteAll(int fd, const char* buf, size_t len)
 // process there would turn a survivable ANR dump into a dead app.
 static void ReportCrash(int signum, siginfo_t* info, void* contextPtr, bool fatal)
 {
-	char buf[512];
+	char buf[768];
 	char* p = buf;
 
 	p = SsStr(p, kCrashMarker);
@@ -311,6 +337,19 @@ static void ReportCrash(int signum, siginfo_t* info, void* contextPtr, bool fata
 	p = SsHex(p, lr);
 	p = SsStr(p, " sp=");
 	p = SsHex(p, sp);
+
+	uintptr_t pcOff = 0, lrOff = 0;
+	const char* pcModule = ModuleAndOffset(pc, &pcOff);
+	const char* lrModule = ModuleAndOffset(lr, &lrOff);
+	p = SsStr(p, " at=");
+	p = SsStr(p, pcModule);
+	p = SsStr(p, "+");
+	p = SsHex(p, pcOff);
+	p = SsStr(p, " caller=");
+	p = SsStr(p, lrModule);
+	p = SsStr(p, "+");
+	p = SsHex(p, lrOff);
+
 	p = SsStr(p, " stage=");
 	p = SsStr(p, g_currentStage ? g_currentStage : "?");
 	p = SsStr(p, "\n");
@@ -806,9 +845,10 @@ extern "C" JNIEXPORT jint JNICALL JNI_OnLoad(JavaVM* vm, void* reserved)
 	uintptr_t libsamp = CUtil::FindLib("libsamp.so");
 	uintptr_t libc = CUtil::FindLib("libc.so");
 
-	FLog("libGTASA.so: 0x%x", libgtasa);
-	FLog("libsamp.so: 0x%x", libsamp);
-	FLog("libc.so: 0x%x", libc);
+	// %p, not %x: a truncated base cannot be subtracted from a crash pc.
+	FLog("libGTASA.so: %p", (void*)libgtasa);
+	FLog("libsamp.so: %p", (void*)libsamp);
+	FLog("libc.so: %p", (void*)libc);
 
 	char str[100];
 
