@@ -207,11 +207,67 @@ jobs:
           set -o pipefail
           ./gradlew --no-daemon --stacktrace --warning-mode all :app:assembleDebug 2>&1 | tee build.log
 
-      # The raw Actions log is only reachable from the GitHub UI, so mirror the
-      # failure tail into an issue where any API client can read it.
-      # Hard gate: the whole native bootstrap lives in libsamp.so's JNI_OnLoad.
-      # If it is not exported ART never calls it, the game never initialises and
-      # the app quits right after launch. Never publish such an APK again.
+      # A crash line says "libsamp.so + 0x1b9bfc". Turning that offset into a
+      # function name needs the symbol table of the exact library that was
+      # built, so CMake keeps an unstripped copy next to the build tree and this
+      # step resolves the offsets seen in the field against it. The results are
+      # workflow notices, which stay readable even when the job log is not.
+      - name: Resolve native crash offsets
+        if: always()
+        run: |
+          set -uo pipefail
+          OFFSETS="0x1b9bfc 0x1cc444"
+
+          NM=$(find "${ANDROID_HOME:-/usr/local/lib/android/sdk}/ndk" -name llvm-nm -type f 2>/dev/null | sort -r | head -1)
+          if [ -z "$NM" ]; then
+            echo "::notice::llvm-nm not found, skipping the symbol map"
+            exit 0
+          fi
+          TOOLS=$(dirname "$NM")
+
+          FOUND=$(find app -name 'libsamp*.so' -type f 2>/dev/null)
+          echo "::notice::found $(echo "$FOUND" | wc -l) libsamp*.so: $(echo "$FOUND" | head -6 | tr '\n' ' ')"
+          echo "::notice::app/.cxx exists: $([ -d app/.cxx ] && echo yes || echo no); build dirs: $(ls -1 app/.cxx 2>/dev/null | head -2 | tr '\n' ' ')"
+
+          SO=""
+          for candidate in $FOUND; do
+            count=$("$NM" -C --defined-only "$candidate" 2>/dev/null | wc -l)
+            echo "::notice::candidate $(basename "$(dirname "$candidate")")/$(basename "$candidate") symbols=${count:-0}"
+            if [ "${count:-0}" -gt 100 ] && [ -z "$SO" ]; then SO="$candidate"; fi
+          done
+          if [ -z "$SO" ]; then
+            echo "::notice::no library with symbols in the build tree"
+            exit 0
+          fi
+          echo "::notice::symbol map from $SO"
+          "$NM" -C --defined-only --numeric-sort "$SO" > /tmp/nm.txt 2>/dev/null
+
+          cat > /tmp/nearest.py <<'PYNEAREST'
+          import sys
+          off = int(sys.argv[1], 16)
+          best = None
+          for line in open('/tmp/nm.txt'):
+              parts = line.split(None, 2)
+              if len(parts) != 3:
+                  continue
+              try:
+                  addr = int(parts[0], 16)
+              except ValueError:
+                  continue
+              if addr <= off:
+                  best = (addr, parts[2].strip())
+          if best:
+              print("%s +0x%x" % (best[1], off - best[0]))
+          else:
+              print("no symbol below 0x%x" % off)
+          PYNEAREST
+
+          for off in $OFFSETS; do
+            line=$("$TOOLS/llvm-addr2line" -f -C -e "$SO" "$off" 2>&1 | tr '\n' ' ' | sed 's/  */ /g')
+            echo "::notice::$off addr2line: $line"
+            echo "::notice::$off symbol: $(python3 /tmp/nearest.py "$off")"
+          done
+
       - name: Verify native bootstrap (JNI_OnLoad exported)
         run: |
           set -euo pipefail
