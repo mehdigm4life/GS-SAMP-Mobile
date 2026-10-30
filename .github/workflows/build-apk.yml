@@ -410,6 +410,41 @@ jobs:
           cat texdb.md >> "$GITHUB_STEP_SUMMARY"
           exit $status
 
+      - name: Verify the UI font is shipped and the abort guard is linked
+        run: |
+          set -euo pipefail
+          APK=$(find app/build/outputs/apk/debug -name '*.apk' | head -1)
+          tmp=$(mktemp -d)
+          unzip -o -q "$APK" 'assets/SAMP/fonts/*' 'lib/arm64-v8a/libsamp.so' -d "$tmp"
+
+          # ImFontAtlas::AddFontFromFileTTF() aborts the process when the font is
+          # missing (SIGABRT in UI::initialize). The APK must carry the font and
+          # libsamp must contain the guard that falls back to the built-in font.
+          status=0
+          { echo '### UI font'; echo '```'; } > font.md
+          font="$tmp/assets/SAMP/fonts/arial_bold.ttf"
+          if [ -f "$font" ]; then
+            size=$(stat -c%s "$font")
+            magic=$(head -c4 "$font" | od -An -tx1 | tr -d ' \n')
+            echo "$size bytes  magic=$magic  assets/SAMP/fonts/arial_bold.ttf" | tee -a font.md
+            [ "$size" -gt 1000 ] || status=1
+            case "$magic" in 00010000|4f54544f|74727565) ;; *) echo "not a TrueType/OpenType font" | tee -a font.md; status=1 ;; esac
+          else
+            echo "missing  assets/SAMP/fonts/arial_bold.ttf" | tee -a font.md
+            status=1
+          fi
+          for needle in \
+            "UI font not found, using the built-in font" \
+            "UI font loaded: %s" ; do
+            count=$(strings -a "$tmp/lib/arm64-v8a/libsamp.so" | grep -c -F -- "$needle" || true)
+            echo "$count  libsamp.so  $needle" | tee -a font.md
+            [ "$count" -ge 1 ] || status=1
+          done
+          echo '```' >> font.md
+          cat font.md
+          cat font.md >> "$GITHUB_STEP_SUMMARY"
+          exit $status
+
       - name: Inspect APK
         if: success()
         run: |

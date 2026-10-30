@@ -31,6 +31,20 @@ ImGuiWrapper::~ImGuiWrapper()
 	shutdown();
 }
 
+// True when [path] can be opened for reading.
+static bool FileIsReadable(const char* path)
+{
+	if (!path || !path[0])
+		return false;
+
+	FILE* f = fopen(path, "rb");
+	if (!f)
+		return false;
+
+	fclose(f);
+	return true;
+}
+
 bool ImGuiWrapper::initialize()
 {
 	Log::traceLastFunc("ImGuiWrapper::initialize");
@@ -57,10 +71,58 @@ bool ImGuiWrapper::initialize()
 		0
     };
 	
-	ImFont* font = io.Fonts->AddFontFromFileTTF(m_fontPath.c_str(),
-		UISettings::fontSize(), &fontCfg, ranges);
+	// ImFontAtlas::AddFontFromFileTTF() calls abort() through IM_ASSERT when the
+	// file cannot be read, so the file is checked before the call is made. The
+	// font used to be missing entirely (the server never publishes
+	// SAMP/fonts/arial_bold.ttf and the APK did not carry one either), which made
+	// every start die with SIGABRT inside UI::initialize():
+	//
+	//   ImFontAtlas::AddFontFromFileTTF
+	//     <- ImGuiWrapper::initialize
+	//     <- UI::initialize
+	//
+	// A readable font is required, not optional: the overlay cannot draw a single
+	// glyph without one.
+	ImFont* font = nullptr;
+	const float fontSize = UISettings::fontSize();
+
+	if (fontSize > 0.0f)
+	{
+		std::vector<std::string> candidates;
+		candidates.push_back(m_fontPath);
+		if (g_pszStorage && g_pszStorage[0])
+		{
+			candidates.push_back(string_format("%sSAMP/fonts/arial_bold.ttf", g_pszStorage));
+			candidates.push_back(string_format("%sSAMP/fonts/arial.ttf", g_pszStorage));
+			candidates.push_back(string_format("%sfnts/arial_bold.ttf", g_pszStorage));
+			candidates.push_back(string_format("%sSAMP/fonts/tahoma.ttf", g_pszStorage));
+		}
+		candidates.push_back("arial_bold.ttf");
+		candidates.push_back("arial.ttf");
+
+		for (const std::string& candidate : candidates)
+		{
+			if (!FileIsReadable(candidate.c_str()))
+				continue;
+
+			font = io.Fonts->AddFontFromFileTTF(candidate.c_str(), fontSize, &fontCfg, ranges);
+			if (font != nullptr)
+			{
+				Log::addParameter("UI font loaded: %s", candidate.c_str());
+				break;
+			}
+		}
+	}
 
 	if (font == nullptr)
+	{
+		// Last resort: the ProggyClean font embedded in dear imgui. The overlay
+		// keeps working (Latin only) instead of aborting the whole game.
+		Log::addParameter("UI font not found, using the built-in font");
+		font = io.Fonts->AddFontDefault();
+	}
+
+	if (font == nullptr || fontSize <= 0.0f)
 	{
 		Log::addParameter("font", font);
 		return false;
