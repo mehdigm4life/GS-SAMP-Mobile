@@ -54,8 +54,15 @@ client_config.json  ->  file list  ->  filter for this device's GPU
 
 The manifest is read from the project's own endpoint
 (`https://samp-mobile.shop/client_config.json`), which points at the file list.
-Texture packs are filtered per GPU family (`.dxt.` / `.etc.` / `.pvr.`) so a
-device downloads only the variant it can render.
+Texture packs are filtered per GPU family (`.dxt` / `.etc` / `.pvr`) so a device
+downloads only the variant it can render. The family is chosen by probing the
+same GL extensions libGTASA probes (`GL_EXT_texture_compression_s3tc`, then
+`GL_IMG_texture_compression_pvrtc`, then ETC1) - not by the renderer name. A
+vendor string such as "PowerVR" says nothing about which formats the driver can
+actually sample: the GE8320 advertises S3TC, so the game loads
+`texdb/mobile/mobile.dxt.tmb`. Before starting the game the launcher also checks
+that exact file exists, so a cache built for the wrong family opens the installer
+instead of crashing in `TextureDatabaseRuntime::SortEntries`.
 
 ## Building
 
