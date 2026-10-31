@@ -2798,38 +2798,39 @@ bool IsGameEntityArePlaceable(CEntityGTA *pEntity)
     return false;
 }
 
+// Materials own a texture reference. Raw pointer assignment leaves dangling
+// textures when SetMaterial replaces the object's reference or a clone dies.
+static void SetObjectMaterialTexture(RpMaterial* material, RwTexture* texture)
+{
+    if (!material || !texture || material->texture == texture) return;
+    CHook::CallFunction<RpMaterial*>("_Z20RpMaterialSetTextureP10RpMaterialP9RwTexture",
+                                   material, texture);
+}
+
 RpAtomic* ObjectMaterialCallBack(RpAtomic* rpAtomic, CObject* pObject)
 {
-    if(!pObject) return rpAtomic;
-    int iTotalEntries = rpAtomic->geometry->matList.numMaterials;
-    if (iTotalEntries > 16) iTotalEntries = 16; // fix fucking bug :|
-    for (int i = 0; i < iTotalEntries; i++)
-    {
-        if(pObject->m_MaterialTexture[i])
-            rpAtomic->geometry->matList.materials[i]->texture = (RwTexture*)pObject->m_MaterialTexture[i];
-            /*material->color.red = pObject->m_dwMaterialColor[i]->red;
-            material->color.green = pObject->m_dwMaterialColor[i]->green;
-            material->color.blue = pObject->m_dwMaterialColor[i]->blue;
-            material->color.alpha = pObject->m_dwMaterialColor[i]->alpha;*/
-    }
-
+    // RwFrameForAllObjects can also visit cameras/lights, not just atomics.
+    if (!rpAtomic || !pObject || rpAtomic->object.object.type != 1 || !rpAtomic->geometry)
+        return rpAtomic;
+    const auto& materials = rpAtomic->geometry->matList;
+    if (!materials.materials) return rpAtomic;
+    const int count = materials.numMaterials < 16 ? materials.numMaterials : 16;
+    for (int i = 0; i < count; ++i)
+        SetObjectMaterialTexture(materials.materials[i],
+                                 reinterpret_cast<RwTexture*>(pObject->m_MaterialTexture[i]));
     return rpAtomic;
 }
 
 RpAtomic* ObjectMaterialTextCallBack(RpAtomic* rpAtomic, CObject* pObject)
 {
-    if(!pObject->m_MaterialTextTexture || rpAtomic->object.object.type != 1) return rpAtomic;
-
-    int iTotalEntries = rpAtomic->geometry->matList.numMaterials;
-    if (iTotalEntries > 16) iTotalEntries = 16; // fix fucking bug :|
-    for (int i = 0; i < iTotalEntries; i++)
-    {
-        if(pObject->m_MaterialTextTexture[i])
-        {
-            rpAtomic->geometry->matList.materials[i]->texture = (RwTexture*)pObject->m_MaterialTextTexture[i];
-        }
-    }
-
+    if (!rpAtomic || !pObject || rpAtomic->object.object.type != 1 || !rpAtomic->geometry)
+        return rpAtomic;
+    const auto& materials = rpAtomic->geometry->matList;
+    if (!materials.materials) return rpAtomic;
+    const int count = materials.numMaterials < 16 ? materials.numMaterials : 16;
+    for (int i = 0; i < count; ++i)
+        SetObjectMaterialTexture(materials.materials[i],
+                                 reinterpret_cast<RwTexture*>(pObject->m_MaterialTextTexture[i]));
     return rpAtomic;
 }
 

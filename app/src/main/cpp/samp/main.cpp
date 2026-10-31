@@ -20,6 +20,7 @@
 #include "java/jniutil.h"
 #include <dlfcn.h>
 #include "StackTrace.h"
+#include "diagnostics/CrashReportOwner.h"
 
 // voice
 #include "voice_new/Plugin.h"
@@ -345,8 +346,24 @@ static void WriteCrashContext(int fd, void* contextPtr)
 // crash signals always are. SIGQUIT and SIGTERM are not: SIGQUIT is what the
 // system sends to dump the stack of an app it considers stuck, and killing the
 // process there would turn a survivable ANR dump into a dead app.
+static CrashReportOwner g_crashReportOwner;
+
 static void ReportCrash(int signum, siginfo_t* info, void* contextPtr, bool fatal)
 {
+    const int tid = static_cast<int>(syscall(SYS_gettid));
+    if (fatal)
+    {
+        const auto ownership = g_crashReportOwner.TryAcquire(tid);
+        if (ownership == CrashReportOwner::Result::Reentered)
+            _exit(128 + signum); // A fault in the reporter must not recurse.
+        if (ownership == CrashReportOwner::Result::OtherThread)
+        {
+            // Do not write into the owner's report or terminate it mid-write.
+            // Its default fatal signal will terminate the whole process.
+            for (;;) pause();
+        }
+    }
+
 	char buf[768];
 	char* p = buf;
 
@@ -390,7 +407,9 @@ static void ReportCrash(int signum, siginfo_t* info, void* contextPtr, bool fata
 	p = SsStr(p, "+");
 	p = SsHex(p, lrOff);
 
-	p = SsStr(p, " stage=");
+	p = SsStr(p, " tid=");
+    p = SsHex(p, static_cast<uintptr_t>(tid));
+    p = SsStr(p, " stage=");
 	p = SsStr(p, g_currentStage ? g_currentStage : "?");
 	p = SsStr(p, "\n");
 	*p = 0;   // __android_log_write() below needs a terminated string
