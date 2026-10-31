@@ -38,7 +38,9 @@ void MaterialTextGenerator::Render(const char* text, const ImVec2& size, int fon
 	if (pUI) {
 		ImGui::NewFrame();
 
-		auto info = Encoding::cp2utf(text).c_str();
+		// Own the converted string until measurement and drawing finish.
+        // c_str() on the temporary left a dangling pointer at the semicolon.
+        const std::string info = Encoding::cp2utf(text ? text : "");
 
 		pUI->renderer()->drawRect(ImVec2(0.0f, 0.0f), size, background_color, true);
 		ImVec2 text_size = pUI->renderer()->calculateTextSize(info, font_size);
@@ -46,7 +48,8 @@ void MaterialTextGenerator::Render(const char* text, const ImVec2& size, int fon
 		ImVec2 text_pos;
 		switch (text_align)
 		{
-			case 0: // LEFT
+			default: // Invalid network alignment falls back to LEFT.
+            case 0: // LEFT
 				text_pos = ImVec2(0.0f, 0.0f);
 				break;
 			case 1: // CENTER
@@ -116,7 +119,9 @@ void MaterialTextGenerator::GetMaterialSize(int size, int* x, int* y)
 			{ 256, 64 } , { 256, 128 } , { 256, 256 } , { 512, 64 } , { 512,128 } , { 512,256 } , { 512,512 }
 	};
 
-	int del = (size / 10) - 1;
+	// Network codes must be exactly 10,20,...,140, never an arbitrary index.
+    const int del = (size >= 10 && size <= 140 && size % 10 == 0)
+        ? (size / 10) - 1 : 0;
 	*x = sizes[del][0];
 	*y = sizes[del][1];
 }

@@ -1,0 +1,54 @@
+name: Native crash-7 investigation
+on:
+  workflow_dispatch:
+  push:
+    branches: [arena/88ef5877-gs-samp-mobile]
+    paths: ['tools/native_crash_probe.py', '.github/workflows/native-crash-analysis.yml']
+permissions:
+  contents: read
+  actions: read
+jobs:
+  native:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - name: Install disassembler and ELF parser
+        run: |
+          python3 -m venv /tmp/probe
+          /tmp/probe/bin/pip install pyelftools==0.32 capstone==5.0.6
+      - name: Retrieve exact released binary and its native symbols
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          mkdir -p analysis/symbols analysis/shipped analysis/reference
+          gh run download 41196826472 --repo "$GITHUB_REPOSITORY" -n native-symbols-bee3d2f5b699bc35ca23cae572c26c4805c7fa13 -D analysis/symbols
+          curl -fL --max-time 300 https://github.com/mehdigm4life/GS-SAMP-Mobile/releases/download/build-91/app-debug.apk -o /tmp/project.apk
+          curl -fL --max-time 300 https://www.samp-mobile.shop/launcher.apk -o /tmp/reference.apk
+          python3 - <<'PY'
+          import zipfile
+          from pathlib import Path
+          for apk, dest in [('/tmp/project.apk','analysis/shipped/libsamp.so'),('/tmp/reference.apk','analysis/reference/libsamp.so')]:
+              with zipfile.ZipFile(apk) as z:
+                  item=z.getinfo('lib/arm64-v8a/libsamp.so')
+                  if item.file_size>100_000_000: raise ValueError('Oversized library')
+                  Path(dest).write_bytes(z.read(item))
+          PY
+      - name: Identify crash-7 instructions with verified exact symbols
+        run: |
+          SO=$(find analysis/symbols -path '*arm64*' -name libsamp-unstripped.so | head -1)
+          /tmp/probe/bin/python tools/native_crash_probe.py crash "$SO" --shipped analysis/shipped/libsamp.so --out analysis/crash-7.txt
+      - name: Inspect reference decompression and GPU functions
+        run: /tmp/probe/bin/python tools/native_crash_probe.py reference analysis/reference/libsamp.so --out analysis/reference-native.txt
+      - name: Inspect project decompression and GPU functions
+        run: |
+          SO=$(find analysis/symbols -path '*arm64*' -name libsamp-unstripped.so | head -1)
+          /tmp/probe/bin/python tools/native_crash_probe.py reference "$SO" --out analysis/project-native.txt
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: native-crash-7-evidence
+          path: analysis/*.txt
+          retention-days: 14
