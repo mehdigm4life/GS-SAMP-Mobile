@@ -51,21 +51,22 @@ jobs:
           test -n "$RUNTIME"
           mkdir -p app/build/generated/asan/jniLibs/arm64-v8a
           cp "$RUNTIME" app/build/generated/asan/jniLibs/arm64-v8a/
-      - name: Resolve ASan-3 using its exact instrumented symbols
+      - name: Resolve ASan-4 allocation, free and invalid read with exact symbols
         env:
           GH_TOKEN: ${{ github.token }}
           GH_REPO: ${{ github.repository }}
         run: |
           set -euo pipefail
-          gh run download 41202279522 -n asan-native-symbols-2cf2a4188ac76dca8f725fd4754c832d922b3c8c -D /tmp/asan3-symbols
+          gh run download 41203282974 -n asan-native-symbols-a011b35b979de7fcbbe8a1669a1afa46030f9cf4 -D /tmp/asan3-symbols
           SO=$(find /tmp/asan3-symbols -name libsamp-unstripped.so -print -quit)
           TOOLS="$ANDROID_NDK_HOME/toolchains/llvm/prebuilt/linux-x86_64/bin"
-          "$TOOLS/llvm-readelf" -n "$SO" | grep 852bec8b3f652fda040b4d8ecafc0f986cbc6145
-          "$TOOLS/llvm-addr2line" -f -C -e "$SO" 0x285414 0x28574c 0x2862b8 0x289dac 0x35bb5c 0x27811c > asan3-symbolication.txt
+          "$TOOLS/llvm-readelf" -n "$SO" | grep ed32bd6380c46acdd3e3ed6898b37daa3ab8153d
+          "$TOOLS/llvm-addr2line" -f -C -e "$SO" 0x275134 0x2750dc 0x274ff0 0x3678c8 0x350ae8 0x367348 0x350368 > asan3-symbolication.txt
           while IFS= read -r line; do echo "::notice::$line"; done < asan3-symbolication.txt
       - name: Run native regression tests
         run: |
           python3 tests/test_capability_token.py
+          python3 tests/test_player_lifetime.py
           python3 tests/test_material_text_render.py
           python3 tests/test_map_icon_safety.py
           python3 tests/test_script_marshalling.py
