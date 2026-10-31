@@ -55,8 +55,8 @@ android {
         targetSdk 34
         // Bumped so builds install over the previously published APKs instead
         // of being rejected as a downgrade.
-        versionCode 118
-        versionName "0.8.4.0"
+        versionCode 119
+        versionName "0.8.4.1"
 
         multiDexEnabled true
 
