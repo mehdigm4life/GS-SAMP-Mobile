@@ -542,9 +542,9 @@ jobs:
 
           check app/src/main/cpp/samp/game/game.cpp "CAnimManager17GetAnimationBlockEPKc"
           check app/src/main/cpp/samp/game/game.cpp "HasAnimationBlock"
-          check app/src/main/cpp/samp/game/game.cpp "if (!HasAnimationBlock(szAnimLib))"
+          check app/src/main/cpp/samp/game/game.cpp "ResolveAnimationBlockName(szAnimLib, canonicalName"
           check app/src/main/cpp/samp/game/playerped.cpp "pGame->HasAnimationBlock(szAnimLib)"
-          check app/src/main/cpp/samp/game/game.h "bool HasAnimationBlock(const char* szAnimLib);"
+          check app/src/main/cpp/samp/game/game.h "bool ResolveAnimationBlockName(const char* requestedName"
 
           echo '```' >> anim.md
           cat anim.md
@@ -556,6 +556,7 @@ jobs:
           python3 tests/test_streaming_read_buffer.py
           python3 tests/test_streaming_metadata.py
           python3 tests/test_animation_dispatch.py
+          python3 tests/test_animation_block_resolution.py
           python3 tests/test_player_lifetime.py
           python3 tests/test_material_text_render.py
           python3 tests/test_map_icon_safety.py
@@ -602,7 +603,8 @@ jobs:
           }
 
           # animations: validate the block/name, then create the engine's SCM ped task
-          check app/src/main/cpp/samp/game/AnimationSupport.cpp "ScriptCommand(&apply_animation, pedId, name, lib, delta"
+          check app/src/main/cpp/samp/game/AnimationSupport.cpp "ScriptCommand(&apply_animation, pedId, name, canonicalName, delta"
+          check app/src/main/cpp/samp/game/AnimationSupport.cpp "CanonicalBlockName(lib, canonicalName"
           check app/src/main/cpp/samp/game/AnimationSupport.cpp "block->bLoaded"
           check app/src/main/cpp/samp/game/AnimationSupport.cpp "getHierarchy(name, block)"
           check app/src/main/cpp/samp/game/AnimationSupport.cpp "legacy SCM path"
