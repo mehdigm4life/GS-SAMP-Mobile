@@ -57,10 +57,23 @@ def main():
             start=max(addr,target-64)
             chunks.append(f'CRASH-7 {target:#x} => '+img.dump(name,start,min(160,addr+size-start)))
     else:
-        names=[n for n in img.symbols if re.search(r'RLEDecompress|OS_FileRead|[Gg][Pp][Uu].*[Tt]exture|[Tt]exture.*[Gg][Pp][Uu]',n)]
+        names=[n for n in img.symbols if re.search(r'RLE|Decompress|[Gg][Pp][Uu]|[Dd][Xx][Tt]|OS_FileRead',n)]
         chunks.append('Candidate symbols:\n'+'\n'.join(f'{n} {img.symbols[n]}' for n in names))
         for n in names[:8]: chunks.append(img.dump(n))
+        # ARM64 PLT entry reached from setGpuTextureFormat in reference v143.
+        decoder=Cs(CS_ARCH_ARM64, CS_MODE_ARM)
+        chunks.append('GPU PLT 0x345640:\n'+'\n'.join(f'{i.address:x}: {i.mnemonic} {i.op_str}' for i in decoder.disasm(img.data(0x345640,32),0x345640)))
+        relocs=[]
+        for sec in img.elf.iter_sections():
+            if sec['sh_type'] not in ('SHT_RELA','SHT_REL'): continue
+            table=img.elf.get_section(sec['sh_link'])
+            for r in sec.iter_relocations():
+                symbol=table.get_symbol(r['r_info_sym'])
+                if re.search(r'[Gg][Pp][Uu]|[Dd][Xx][Tt]|RLE|Decompress',symbol.name):
+                    relocs.append(f'{r["r_offset"]:#x}: {symbol.name}')
+        chunks.insert(1,'Related relocations:\n'+'\n'.join(relocs))
     args.out.parent.mkdir(parents=True,exist_ok=True)
     args.out.write_text('\n\n'.join(chunks))
     for chunk in chunks[:9]: notice(chunk[:3500])
+    if args.mode=='reference': notice(chunks[-1][:3500])
 if __name__=='__main__': main()
