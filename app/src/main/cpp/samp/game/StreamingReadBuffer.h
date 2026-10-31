@@ -6,6 +6,12 @@
 
 namespace StreamingReadBuffer {
 constexpr std::size_t Sector = 2048;
+// IMG directory entry sector lengths are stored as unsigned 16-bit values.
+constexpr std::uint32_t MaxImgEntrySectors = 0xffffu;
+inline bool IsPlausibleImgSectorCount(std::uint64_t sectors)
+{
+    return sectors <= MaxImgEntrySectors;
+}
 enum class Result { Fits, Grew, Busy, Invalid, NoMemory };
 
 // The engine owns ONE aligned allocation, split into two adjacent channels.

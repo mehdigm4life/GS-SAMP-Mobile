@@ -205,7 +205,7 @@ static const char* g_currentStage = "libsamp loaded";
 // markers are pinned with "used" and are read from the name, not inlined.
 __attribute__((used)) static const char kCrashMarker[]       = "\n=== CRASH signal=";
 __attribute__((used)) static const char kExitMarker[]        = "\n=== EXIT atexit stage=";
-__attribute__((used)) static const char kKilledMarkerText[] = "previous session was killed without reporting";
+__attribute__((used)) static const char kKilledMarkerText[] = "previous session ended without a crash/exit report";
 __attribute__((used)) static const char kCleanMarkerText[]  = "previous session ended cleanly";
 
 static size_t SsLen(const char* s) { size_t n = 0; while (s && s[n]) n++; return n; }
@@ -434,8 +434,8 @@ static void ReportCrash(int signum, siginfo_t* info, void* contextPtr, bool fata
 }
 
 // ---------------------------------------------------------------------------
-// Stage recording: tells the next start exactly where the previous one stopped,
-// even when the process was killed with SIGKILL and nothing could be logged.
+// Stage recording: tells the next start the last point reached, even when the
+// process ends without a signal/exit report. It cannot identify the cause.
 // ---------------------------------------------------------------------------
 static long ReadProcKb(const char* path, const char* key)
 {
@@ -470,9 +470,8 @@ void GameStage(const char* name)
 
 	g_currentStage = name;
 
-	// The second line is what tells a low-memory kill apart from a crash when
-	// this file is read on the next start: a healthy start never reaches the
-	// scene with only a few MB of MemAvailable left.
+	// Record a memory snapshot for diagnosis. It is evidence from the last
+	// stage, not proof that memory pressure caused any later termination.
 	FILE* f = fopen(kStagePath, "w");
 	if (f)
 	{
@@ -492,12 +491,10 @@ void GameStage(const char* name)
 
 // Called once per process start: reports how the previous run ended.
 //
-// There are three ways a session can end and only one of them used to leave a
-// trace. A fatal signal appends to crash.txt. A plain exit() is caught by the
-// atexit reporter below and appends there too. A SIGKILL - the low-memory
-// killer, or the user removing the task - cannot be caught at all, so it is
-// recognised here instead: stage.txt is newer than crash.txt, which means the
-// process went away between one stage and the next without reporting anything.
+// A fatal signal appends to crash.txt. A plain exit() is caught by the atexit
+// reporter below and appends there too. If neither report is newer than the
+// stage marker, the process ended without a captured report; the available
+// evidence cannot distinguish an OS kill, task removal, or an unreported fault.
 static void LogPreviousStage()
 {
 	mkdir("/storage/emulated/0/GS-SAMP", 0770);
@@ -533,7 +530,7 @@ static void LogPreviousStage()
 	}
 
 	// One-second mtime granularity: only treat the stage as newer when it is
-	// strictly newer, so a report written in the same second is never ignored.
+	// strictly newer; equal timestamps are ambiguous and should not hide a report.
 	struct stat stageStat = { 0 };
 	struct stat crashStat = { 0 };
 	const bool haveStage = stat(kStagePath, &stageStat) == 0;
@@ -541,9 +538,9 @@ static void LogPreviousStage()
 
 	if (!haveCrash || (haveStage && stageStat.st_mtime > crashStat.st_mtime))
 	{
-		FLog("%s at stage: %s - "
-		     "the process was killed by the system (low memory) or removed, "
-		     "not crashed; %s is the memory picture of that moment",
+		FLog("%s at stage: %s - termination cause is unknown; it may be an OS kill, "
+		     "task removal, or a fault that bypassed the native reporter. "
+		     "%s is only the last recorded memory snapshot",
 		     kKilledMarkerText, last, detail[0] ? detail : "stage.txt");
 	}
 	else

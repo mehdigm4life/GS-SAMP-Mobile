@@ -1,12 +1,9 @@
 /*
-    Animation support - see AnimationSupport.h for what this is for.
-
-    The functions themselves are the engine's; they are exported by libGTASA
-    (GLOBAL DEFAULT in .dynsym), so they are resolved with dlsym() and only fall
-    back to a fixed offset when the lookup fails. On the 32-bit build the offsets
-    of these three are not known, so the fallback is disabled there and
-    Apply() reports "not applied" - the caller then keeps using the script
-    command, which is exactly the behaviour that build had before.
+    Animation support validates the requested library and hierarchy using the
+    exported libGTASA queries, then dispatches through GTA's normal SCM opcode.
+    The script opcode owns the ped task and works through both ARM ABIs; when
+    32-bit private query symbols are unavailable we retain the guarded legacy
+    SCM path rather than disabling animations.
 */
 
 #include <dlfcn.h>
@@ -21,11 +18,12 @@
 #include "../main.h"
 #include "game.h"
 #include "util.h"
+#include "scripting.h"
 
 #include "Entity/CPedGTA.h"
 
 #include "Animation/AnimBlock.h"
-#include "Animation/AnimBlendAssociation.h"
+#include "Animation/AnimBlendHierarchy.h"
 
 extern CGame* pGame;
 
@@ -33,7 +31,6 @@ namespace
 {
     typedef CAnimBlock* (*GetBlockFn)(const char*);
     typedef CAnimBlendHierarchy* (*GetHierarchyFn)(const char*, const CAnimBlock*);
-    typedef CAnimBlendAssociation* (*BlendAnimationFn)(RpClump*, CAnimBlendHierarchy*, int32, float);
     typedef void (*StopNonPartialAnimsFn)(CPedGTA*);
 
     void* ResolveSymbol(const char* name, uintptr_t arm64Offset)
@@ -57,13 +54,6 @@ namespace
     GetHierarchyFn GetHierarchyFunction()
     {
         static GetHierarchyFn fn = (GetHierarchyFn)ResolveSymbol("_ZN12CAnimManager12GetAnimationEPKcPK10CAnimBlock", 0x466A3C);
-        return fn;
-    }
-
-    BlendAnimationFn GetBlendAnimationFunction()
-    {
-        static BlendAnimationFn fn = (BlendAnimationFn)ResolveSymbol(
-            "_ZN12CAnimManager14BlendAnimationEP7RpClumpP19CAnimBlendHierarchyif", 0x466D8C);
         return fn;
     }
 
@@ -134,32 +124,6 @@ namespace
         destination[length] = '\0';
     }
 
-    int FlagsFor(int opt1, int opt2, int opt3, int opt4, int time)
-    {
-        /*
-            The same computation CRunningScript::PlayAnimScriptCommand does for
-            script opcode 0x0812 (it is visible in libGTASA at 0x3FF2F4..):
-            a partial animation that loops unless the script asked for a single
-            pass, plus the translation locks. Being partial is what keeps the
-            player's own control task from dropping the animation again.
-        */
-        int32 flags = ANIMATION_PARTIAL;
-
-        if (opt1)
-        {
-            flags |= ANIMATION_LOOPED;
-        }
-        else if (time >= 1 && !opt4)
-        {
-            flags |= ANIMATION_LOOPED;
-        }
-
-        if (!opt2) flags |= ANIMATION_TRANSLATE_Y;
-        if (!opt3) flags |= ANIMATION_TRANSLATE_X;
-        if (!opt1) flags |= ANIMATION_UNLOCK_LAST_FRAME;
-
-        return flags;
-    }
 }
 
 namespace SAMPAnim
@@ -179,7 +143,11 @@ namespace SAMPAnim
 
         GetBlockFn getBlock = GetBlockFunction();
         if (getBlock == nullptr)
-            return false;
+        {
+            // The 32-bit game exports may omit this helper. The guarded SCM
+            // query checks the block name without the old null dereference.
+            return pGame != nullptr && pGame->IsAnimationLoaded(lib);
+        }
 
         CAnimBlock* block = getBlock(lib);
         return block != nullptr && block->bLoaded;
@@ -193,7 +161,7 @@ namespace SAMPAnim
         GetBlockFn getBlock = GetBlockFunction();
         GetHierarchyFn getHierarchy = GetHierarchyFunction();
         if (getBlock == nullptr || getHierarchy == nullptr)
-            return false;
+            return true; // validated block is loaded; retain the 32-bit SCM path
 
         CAnimBlock* block = getBlock(lib);
         if (block == nullptr || !block->bLoaded)
@@ -241,55 +209,43 @@ namespace SAMPAnim
         return true;
     }
 
-    bool Apply(CPedGTA* ped, const char* lib, const char* name, float delta,
+    bool Apply(int pedId, CPedGTA* ped, const char* lib, const char* name, float delta,
         int opt1, int opt2, int opt3, int opt4, int time)
     {
-        if (ped == nullptr || ped->m_pRwClump == nullptr)
+        if (pedId < 0 || ped == nullptr || GamePool_Ped_GetAt(pedId) != ped ||
+            ped->m_pRwClump == nullptr || lib == nullptr || name == nullptr)
             return false;
 
-        if (lib == nullptr || name == nullptr)
-            return false;
-
+        // Verify the exact block and hierarchy first. Then let the engine's
+        // normal SCM opcode create the ped task. Blending an association
+        // directly onto the clump bypasses the task/controller path used by
+        // the local SA-MP player, which can leave a logged request without a
+        // persistent ped task.
         GetBlockFn getBlock = GetBlockFunction();
         GetHierarchyFn getHierarchy = GetHierarchyFunction();
-        BlendAnimationFn blendAnimation = GetBlendAnimationFunction();
-
-        if (getBlock == nullptr || getHierarchy == nullptr || blendAnimation == nullptr)
-            return false;
+        if (getBlock == nullptr || getHierarchy == nullptr)
+        {
+            // 32-bit keeps the original script route when these private helpers
+            // are not exported. The block has already passed IsAnimationLoaded.
+            ScriptCommand(&apply_animation, pedId, name, lib, delta,
+                opt1, opt2, opt3, opt4, time);
+            LogAnim("animation dispatched through legacy SCM path: ped=%d %s:%s", pedId, lib, name);
+            return true;
+        }
 
         CAnimBlock* block = getBlock(lib);
         if (block == nullptr || !block->bLoaded)
             return false;
 
-        CAnimBlendHierarchy* hierarchy = getHierarchy(name, block);
-        if (hierarchy == nullptr)
+        if (getHierarchy(name, block) == nullptr)
         {
             LogAnim("animation %s is not in block %s", name, lib);
             return false;
         }
 
-        const int32 flags = FlagsFor(opt1, opt2, opt3, opt4, time);
-
-        /*
-            The blend rate. CRunningScript::PlayAnimScriptCommand forwards the
-            script's "delta" argument here as well - it is the rate the pose
-            blends in at, not the playback speed. 8.0f is the engine's default.
-        */
-        float blendRate = (delta > 0.01f) ? delta : 8.0f;
-        if (blendRate < 0.1f) blendRate = 0.1f;
-        if (blendRate > 20.0f) blendRate = 20.0f;
-
-        CAnimBlendAssociation* association = blendAnimation(ped->m_pRwClump, hierarchy, flags, blendRate);
-        if (association == nullptr)
-        {
-            LogAnim("blend failed for %s:%s", lib, name);
-            return false;
-        }
-
-        /* A zero speed would hold the pose on its first frame. */
-        if (association->m_fSpeed == 0.0f)
-            association->m_fSpeed = 1.0f;
-
+        ScriptCommand(&apply_animation, pedId, name, lib, delta,
+            opt1, opt2, opt3, opt4, time);
+        LogAnim("animation dispatched to engine task: ped=%d %s:%s", pedId, lib, name);
         return true;
     }
 
@@ -359,7 +315,7 @@ namespace SAMPAnim
                     LogAnim("animation %s is not in block %s (dropped)", pending.name, pending.lib);
                     keep = false;
                 }
-                else if (Apply(pending.ped, pending.lib, pending.name, pending.delta,
+                else if (Apply(pending.pedId, pending.ped, pending.lib, pending.name, pending.delta,
                     pending.opt1, pending.opt2, pending.opt3, pending.opt4, pending.time))
                 {
                     keep = false;

@@ -813,17 +813,10 @@ void CPlayerPed::ApplyAnimation(const char* szAnimName, const char* szAnimLib, f
 	}
 
 	/*
-		Apply it the way the engine does from script opcode 0x0812, but through
-		CAnimManager directly:
-
-		  - the block has to be loaded, otherwise the hierarchy lookup finds
-		    nothing and the task that used to be created here never finished -
-		    a ped carrying such a task stands frozen for good;
-		  - the animation name has to exist in that block, otherwise there is
-		    nothing to play (and now that is known before touching the ped);
-		  - a request for a block that is still streaming is remembered and
-		    applied as soon as it lands, so the first animation of a session is
-		    not lost any more.
+		Validate that the library exists, and defer while its data is streaming.
+		Once it is ready, use the same SCM opcode as the server. This asks the
+		engine to create its normal animation task instead of blending directly
+		onto a clump that local-player control can replace on the next frame.
 	*/
 	if (!SAMPAnim::BlockLoaded(szAnimLib))
 	{
@@ -841,13 +834,11 @@ void CPlayerPed::ApplyAnimation(const char* szAnimName, const char* szAnimLib, f
 		return;
 	}
 
-	if (SAMPAnim::Apply(m_pPed, szAnimLib, szAnimName, fT, opt1, opt2, opt3, opt4, iTime))
-		return;
-
-	// Last resort: the script command (32-bit builds, or a hierarchy the
-	// direct call refused). It is only reached when the animation really is
-	// there, so it can no longer leave a task that never starts.
-	ScriptCommand(&apply_animation, m_dwGTAId, szAnimName, szAnimLib, fT, opt1, opt2, opt3, opt4, iTime);
+    // Use the same SCM opcode as the server/script path. It creates the
+    // engine task attached to this ped; direct clump blending can be replaced
+    // by the local-player controller on the next frame.
+    SAMPAnim::Apply(m_dwGTAId, m_pPed, szAnimLib, szAnimName,
+        fT, opt1, opt2, opt3, opt4, iTime);
 }
 
 // CLEAR_ANIMATIONS: the server asked for the ped to stop what it is playing.

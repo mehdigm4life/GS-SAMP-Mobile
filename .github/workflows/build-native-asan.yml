@@ -2,7 +2,7 @@ name: Spawn memory diagnostic (ASan)
 on:
   workflow_dispatch:
   push:
-    branches: [arena/88ef5877-gs-samp-mobile]
+    branches: [main, arena/059e06cc-gs-samp-mobile]
     paths:
       - '.github/workflows/build-native-asan.yml'
       - 'app/src/asan/**'
@@ -10,6 +10,15 @@ on:
       - 'tests/test_capability_token.py'
       - 'app/src/main/cpp/samp/game/StreamingReadBuffer.h'
       - 'tests/test_streaming_read_buffer.py'
+      - 'app/src/main/cpp/samp/game/Streaming.cpp'
+      - 'app/src/main/cpp/samp/game/AnimationSupport.cpp'
+      - 'app/src/main/cpp/samp/game/AnimationSupport.h'
+      - 'app/src/main/cpp/samp/game/playerped.cpp'
+      - 'tests/test_streaming_metadata.py'
+      - 'tests/test_animation_dispatch.py'
+      - 'tests/test_script_marshalling.py'
+      - 'app/src/main/cpp/samp/main.cpp'
+      - 'docs/logcat-25-animations-and-startup.md'
 permissions:
   contents: write
   actions: read
@@ -68,6 +77,8 @@ jobs:
       - name: Run native regression tests
         run: |
           python3 tests/test_capability_token.py
+          python3 tests/test_streaming_metadata.py
+          python3 tests/test_animation_dispatch.py
           python3 tests/test_streaming_read_buffer.py
           python3 tests/test_player_lifetime.py
           python3 tests/test_material_text_render.py
