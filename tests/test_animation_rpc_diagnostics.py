@@ -12,6 +12,10 @@ clear = src[end:clear_end]
 assert 'loop=%d lockX=%d lockY=%d freeze=%d time=%u' in apply
 assert 'szAnimLib, szAnimName, fDelta, bLoop, bLockX, bLockY, bFreeze, dwTime' in apply
 assert apply.index('FLog("ApplyAnimation:') < apply.index('pPlayerPed->ApplyAnimation(')
+assert 'if (!strcasecmp(szAnimLib, "PED") && !strcasecmp(szAnimName, "handsup") && (bLoop || !bFreeze))' in apply
+assert 'bLoop = false;' in apply and 'bFreeze = true;' in apply
+assert 'HandsUp compatibility: server loop=%d freeze=%d; using loop=0 freeze=1' in apply
+assert apply.index('HandsUp compatibility:') < apply.index('pPlayerPed->ApplyAnimation(')
 assert 'if (!bsData.Read(playerId))' in clear
 assert 'FLog("ClearAnimation: player=%u", unsigned(playerId));' in clear
 assert clear.index('bsData.Read(playerId)') < clear.index('FLog("ClearAnimation:')

@@ -2,6 +2,7 @@
 #include "../game/game.h"
 #include "netgame.h"
 #include "../audiostream.h"
+#include <strings.h>
 
 extern CGame *pGame;
 extern CNetGame *pNetGame;
@@ -589,9 +590,15 @@ void ScrApplyPlayerAnimation(RPCParameters* rpcParams)
 		}
 
 		if (pPlayerPed) {
-			// Keep the server-supplied task flags in the on-device log. This lets
-			// us distinguish a looping/unfrozen handsup command from a client-side
-			// task reset without changing animation behavior.
+			// The server's handsup task is configured as a loop in observed RPCs,
+			// so the animation repeatedly lowers and raises the arms. Keep this
+			// compatibility override scoped to PED:handsup only; leave every other
+			// server animation and all other flags untouched.
+			if (!strcasecmp(szAnimLib, "PED") && !strcasecmp(szAnimName, "handsup") && (bLoop || !bFreeze)) {
+				FLog("HandsUp compatibility: server loop=%d freeze=%d; using loop=0 freeze=1", bLoop, bFreeze);
+				bLoop = false;
+				bFreeze = true;
+			}
 			FLog("ApplyAnimation: %s:%s delta=%.3f loop=%d lockX=%d lockY=%d freeze=%d time=%u",
 				szAnimLib, szAnimName, fDelta, bLoop, bLockX, bLockY, bFreeze, dwTime);
 			pPlayerPed->ApplyAnimation(szAnimName, szAnimLib, fDelta, bLoop, bLockX, bLockY, bFreeze, dwTime);
