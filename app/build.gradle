@@ -19,6 +19,9 @@ plugins {
 //                             (~/.android/debug.keystore, auto-generated on
 //                             first build) so the project builds out of the box
 // ---------------------------------------------------------------------------
+// Explicit opt-in only; regular builds remain uninstrumented.
+def nativeAsan = providers.gradleProperty('nativeAsan').orNull == 'true'
+
 def externalKeystore = file("../../keys/new.jks")
 def useExternalKeystore = externalKeystore.exists()
 
@@ -56,12 +59,24 @@ android {
         // Bumped so builds install over the previously published APKs instead
         // of being rejected as a downgrade.
         versionCode 121
-        versionName "0.8.4.3"
+        versionName nativeAsan ? '0.8.4.3-asan' : '0.8.4.3'
 
         multiDexEnabled true
 
         ndk {
-            abiFilters 'armeabi-v7a', 'arm64-v8a'
+            if (nativeAsan) {
+                abiFilters 'arm64-v8a'
+            } else {
+                abiFilters 'armeabi-v7a', 'arm64-v8a'
+            }
+        }
+
+        if (nativeAsan) {
+            externalNativeBuild {
+                cmake {
+                    arguments '-DGS_NATIVE_ASAN=ON', '-DANDROID_STL=c++_shared'
+                }
+            }
         }
 
         testInstrumentationRunner "androidx.test.runner.AndroidJUnitRunner"
@@ -69,6 +84,7 @@ android {
 
     packagingOptions {
         jniLibs {
+            if (nativeAsan) useLegacyPackaging = true
             excludes += ['META-INF/*']
             // Deliberately NOT keepDebugSymbols: keeping the debug information
             // in the APK pushed it from 65 MB to about 90 MB, and the game
@@ -77,6 +93,15 @@ android {
         }
         resources {
             excludes += ['META-INF/*']
+        }
+    }
+
+    if (nativeAsan) {
+        sourceSets {
+            debug {
+                jniLibs.srcDir 'build/generated/asan/jniLibs'
+                resources.srcDir 'src/asan/resources'
+            }
         }
     }
 
@@ -90,8 +115,8 @@ android {
 
     buildTypes {
         debug {
-            debuggable false
-            jniDebuggable false
+            debuggable nativeAsan
+            jniDebuggable nativeAsan
             minifyEnabled false
 
             proguardFiles getDefaultProguardFile('proguard-android-optimize.txt'), 'proguard-rules.pro'
