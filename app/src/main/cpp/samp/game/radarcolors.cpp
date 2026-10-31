@@ -228,7 +228,9 @@ uint32_t TranslateColorCodeToRGBA(uint iCode)
 	case 1004:
 		return 0x89A4C440;
 	case 1005:
-		return 0xAA0000FF;
+		// Checkpoint marker color: use full-strength red so it remains clearly
+		// visible on both the minimap and the full map.
+		return 0xFF0000FF;
 	case 1006:
 		return 0xE2C063FF;
 	}
