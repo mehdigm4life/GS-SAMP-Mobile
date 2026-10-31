@@ -19,4 +19,10 @@ assert 'ch.LoadStatus = eChannelState::IDLE;' in refusal
 assert '++ch.totalTries <= 2' in refusal
 assert 'ms_bLoadingBigModel = false;' in refusal
 assert 'nSectorsToRead == 0' in body
-print('PASS: invalid IMG sector metadata is skipped before read; failed worker requests are restored and channel released')
+# The guards must cover the engine's ordinary scheduler, not only explicit
+# TryLoadModel() calls; verify the exact exported arm64 method is redirected.
+inject_start=src.index('void CStreaming::InjectHooks()')
+inject_end=src.index('int CStreaming::AddImageToList(',inject_start)
+inject=src[inject_start:inject_end]
+assert 'CHook::Redirect("_ZN10CStreaming18RequestModelStreamEi", &CStreaming::RequestModelStream);' in inject
+print('PASS: invalid IMG sector metadata is rejected in ordinary and explicit streaming paths; failed reads restore the queue and channel')
