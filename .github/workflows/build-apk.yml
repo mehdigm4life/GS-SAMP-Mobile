@@ -503,7 +503,7 @@ jobs:
           }
 
           check app/src/main/cpp/samp/gui/samp_widgets/voicebutton.h "texture->raster != nullptr"
-          check app/src/main/cpp/samp/gui/samp_widgets/voicebutton.h "Button::draw(renderer)"
+          check app/src/main/cpp/samp/gui/samp_widgets/voicebutton.h "renderer->drawRoundRectFilled(pos, end, rounding, background);"
           check app/src/main/cpp/samp/gui/samp_widgets/voicebutton.h "LoadIcon"
           check app/src/main/cpp/samp/playertags.cpp "m_pMicroIconTexture->raster != nullptr"
           check app/src/main/cpp/samp/playertags.cpp "m_pAFKIconTexture->raster != nullptr"
