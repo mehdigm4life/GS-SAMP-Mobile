@@ -1585,70 +1585,79 @@ void CLocalPlayer::HandleClassSelectionOutcome(bool bOutcome)
 
 uint8_t CLocalPlayer::GetSpecialAction()
 {
-	if(!m_pPlayerPed) return SPECIAL_ACTION_NONE;
+	auto logAndReturn = [](uint8_t action) {
+		static uint8_t lastLoggedAction = 0xFF;
+		if (action != lastLoggedAction) {
+			FLog("Local special action sync: %u", unsigned(action));
+			lastLoggedAction = action;
+		}
+		return action;
+	};
+
+	if(!m_pPlayerPed) return logAndReturn(SPECIAL_ACTION_NONE);
 
 	if(m_pPlayerPed->IsCrouching())
-		return SPECIAL_ACTION_DUCK;
+		return logAndReturn(SPECIAL_ACTION_DUCK);
 
 	if(m_pPlayerPed->IsEnteringVehicle() != 0)
-		return SPECIAL_ACTION_ENTER_VEHICLE;
+		return logAndReturn(SPECIAL_ACTION_ENTER_VEHICLE);
 
 	if(m_pPlayerPed->IsExitingVehicle())
-		return SPECIAL_ACTION_EXIT_VEHICLE;
+		return logAndReturn(SPECIAL_ACTION_EXIT_VEHICLE);
 
 	if(m_pPlayerPed->IsSitTask())
-		return SPECIAL_ACTION_SITTING;
+		return logAndReturn(SPECIAL_ACTION_SITTING);
 
 	if(m_pPlayerPed->IsInJetpackMode())
-		return SPECIAL_ACTION_USEJETPACK;
+		return logAndReturn(SPECIAL_ACTION_USEJETPACK);
 
 	if(m_pPlayerPed->IsCuffed())
-		return SPECIAL_ACTION_CUFFED;
+		return logAndReturn(SPECIAL_ACTION_CUFFED);
 
 	if(m_pPlayerPed->IsCarry())
-		return SPECIAL_ACTION_CARRY;
+		return logAndReturn(SPECIAL_ACTION_CARRY);
 
 	if(m_pPlayerPed->GetDanceStyle() != -1)
 	{
 		switch(m_pPlayerPed->GetDanceStyle())
 		{
 			case 0:
-				return SPECIAL_ACTION_DANCE1;
+				return logAndReturn(SPECIAL_ACTION_DANCE1);
 				break;
 			case 1:
-				return SPECIAL_ACTION_DANCE2;
+				return logAndReturn(SPECIAL_ACTION_DANCE2);
 				break;
 			case 2:
-				return SPECIAL_ACTION_DANCE3;
+				return logAndReturn(SPECIAL_ACTION_DANCE3);
 				break;
 			case 3:
-				return SPECIAL_ACTION_DANCE4;
+				return logAndReturn(SPECIAL_ACTION_DANCE4);
 				break;
 		}
 	}
 
 	if(m_pPlayerPed->HasHandsUp())
-		return SPECIAL_ACTION_HANDSUP;
+		return logAndReturn(SPECIAL_ACTION_HANDSUP);
 
 	if(m_pPlayerPed->IsCellphoneEnabled())
-		return SPECIAL_ACTION_USECELLPHONE;
+		return logAndReturn(SPECIAL_ACTION_USECELLPHONE);
 
 	if(m_pPlayerPed->IsPissing())
-		return SPECIAL_ACTION_PISSING;
+		return logAndReturn(SPECIAL_ACTION_PISSING);
 
 	if(m_pPlayerPed->GetStuff() == eStuffType::STUFF_TYPE_BEER)
-		return SPECIAL_ACTION_DRINK_BEER;
+		return logAndReturn(SPECIAL_ACTION_DRINK_BEER);
 
 	if(m_pPlayerPed->GetStuff() == eStuffType::STUFF_TYPE_DYN_BEER)
-		return SPECIAL_ACTION_DRINK_WINE;
+		return logAndReturn(SPECIAL_ACTION_DRINK_WINE);
 
 	if(m_pPlayerPed->GetStuff() == eStuffType::STUFF_TYPE_PINT_GLASS)
-		return SPECIAL_ACTION_DRINK_SPRUNK;
+		return logAndReturn(SPECIAL_ACTION_DRINK_SPRUNK);
 
 	if(m_pPlayerPed->GetStuff() == eStuffType::STUFF_TYPE_CIGGI)
-		return SPECIAL_ACTION_SMOKE_CIGGY;
+		return logAndReturn(SPECIAL_ACTION_SMOKE_CIGGY);
 
-	return SPECIAL_ACTION_NONE;
+	return logAndReturn(SPECIAL_ACTION_NONE);
 }
 // 0.3.7
 uint32_t CLocalPlayer::GetPlayerColorAsARGB()

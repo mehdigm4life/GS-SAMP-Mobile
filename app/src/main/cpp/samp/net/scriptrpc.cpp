@@ -589,7 +589,11 @@ void ScrApplyPlayerAnimation(RPCParameters* rpcParams)
 		}
 
 		if (pPlayerPed) {
-			FLog("ApplyAnimation: %s:%s", szAnimLib, szAnimName);
+			// Keep the server-supplied task flags in the on-device log. This lets
+			// us distinguish a looping/unfrozen handsup command from a client-side
+			// task reset without changing animation behavior.
+			FLog("ApplyAnimation: %s:%s delta=%.3f loop=%d lockX=%d lockY=%d freeze=%d time=%u",
+				szAnimLib, szAnimName, fDelta, bLoop, bLockX, bLockY, bFreeze, dwTime);
 			pPlayerPed->ApplyAnimation(szAnimName, szAnimLib, fDelta, bLoop, bLockX, bLockY, bFreeze, dwTime);
 		}
 	}
@@ -601,10 +605,10 @@ void ScrClearPlayerAnimations(RPCParameters* rpcParams)
 	int iBitLength = rpcParams->numberOfBitsOfData;
 	RakNet::BitStream bsData((unsigned char*)Data, (iBitLength / 8) + 1, false);
 
-	FLog("ClearAnimation");
-
 	PLAYERID playerId;
-	bsData.Read(playerId);
+	if (!bsData.Read(playerId))
+		return;
+	FLog("ClearAnimation: player=%u", unsigned(playerId));
 	RwMatrix mat;
 
 	CPlayerPool * pPlayerPool = NULL;
@@ -1098,7 +1102,9 @@ void ScrSetPlayerSpecialAction(RPCParameters* rpcParams)
 
 	uint8_t byteSpecialAction;
 	RakNet::BitStream bsData(Data, (iBitLength / 8) + 1, false);
-	bsData.Read(byteSpecialAction);
+	if (!bsData.Read(byteSpecialAction))
+		return;
+	FLog("SpecialAction RPC: %u", unsigned(byteSpecialAction));
 
 	CPlayerPool* pPlayerPool = pNetGame->GetPlayerPool();
 	if (!pPlayerPool) return;
