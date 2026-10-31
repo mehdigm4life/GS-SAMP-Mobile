@@ -237,9 +237,9 @@ jobs:
           # is committed with its symbol table.
           SO=$(find app -name 'libsamp-unstripped.so' -path '*arm64*' -type f 2>/dev/null | head -1)
           if [ -n "$SO" ]; then
-            resolve "$SO" 0x1b9bfc 0x1cc444
+            resolve "$SO" 0x1b9bfc 0x1cc444 0x1a2ca0 0x270904 0x26fa98
           fi
-          resolve app/src/main/jniLibs/arm64-v8a/libGTASA.so 0x41d8b0
+          resolve app/src/main/jniLibs/arm64-v8a/libGTASA.so 0x41d8b0 0x4f57d4
 
       - name: Verify native bootstrap (JNI_OnLoad exported)
         run: |
