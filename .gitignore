@@ -13,3 +13,8 @@
 .externalNativeBuild
 .cxx
 local.properties
+
+# Static reference APK analysis output (CI artifacts, not source)
+/analysis/
+/tools/__pycache__/
+/tests/__pycache__/
