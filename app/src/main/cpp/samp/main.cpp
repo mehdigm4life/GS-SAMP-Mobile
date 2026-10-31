@@ -299,6 +299,46 @@ static void SsWriteAll(int fd, const char* buf, size_t len)
 	}
 }
 
+// Preserve the registers and mappings needed to diagnose heap corruption and
+// driver/plugin crashes. Do not dereference the possibly corrupt SP/FP here.
+// open/read/write/close are signal-safe; avoid dladdr, malloc and backtrace.
+static void WriteCrashContext(int fd, void* contextPtr)
+{
+#if defined(__aarch64__)
+    if (contextPtr)
+    {
+        const auto* ctx = static_cast<const ucontext_t*>(contextPtr);
+        for (unsigned i = 0; i < 31; ++i)
+        {
+            char line[96];
+            char* p = SsStr(line, "register[");
+            p = SsHex(p, i);
+            p = SsStr(p, "]=");
+            p = SsHex(p, ctx->uc_mcontext.regs[i]);
+            p = SsStr(p, "\n");
+            SsWriteAll(fd, line, static_cast<size_t>(p - line));
+        }
+    }
+#endif
+    const char marker[] = "=== memory mappings at crash ===\n";
+    SsWriteAll(fd, marker, sizeof(marker) - 1);
+    const int maps = open("/proc/self/maps", O_RDONLY);
+    if (maps >= 0)
+    {
+        char chunk[1024];
+        // Bound work even if the process has unusually many mappings.
+        for (unsigned i = 0; i < 256; ++i)
+        {
+            const ssize_t n = read(maps, chunk, sizeof(chunk));
+            if (n <= 0) break;
+            SsWriteAll(fd, chunk, static_cast<size_t>(n));
+        }
+        close(maps);
+    }
+    const char end[] = "=== end memory mappings ===\n";
+    SsWriteAll(fd, end, sizeof(end) - 1);
+}
+
 // Async-signal-safe: no allocation, no stdio.
 //
 // [fatal] decides whether the signal is re-raised with the default action. The
@@ -359,6 +399,7 @@ static void ReportCrash(int signum, siginfo_t* info, void* contextPtr, bool fata
 	if (fd >= 0)
 	{
 		SsWriteAll(fd, buf, (size_t)(p - buf));
+		if (fatal) WriteCrashContext(fd, contextPtr);
 		fsync(fd);
 		close(fd);
 	}
