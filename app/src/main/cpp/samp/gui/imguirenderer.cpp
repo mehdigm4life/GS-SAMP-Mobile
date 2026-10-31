@@ -120,42 +120,38 @@ void ImGuiRenderer::drawText(const ImVec2& pos, const ImColor& color, const std:
 	if (text.empty()) return;
 
 	float sz_font = font_size == 0.0f ? m_font->FontSize : font_size;
-
-	const char* text_start = text.c_str();
 	const char* text_cur = text.c_str();
-	const char* text_end = text.c_str() + text.length();
-
+	const char* text_start = text_cur;
+	const char* text_end = text_cur + text.length();
 	ImVec2 pos_cur = pos;
 	ImColor color_cur = color;
 
-	while (*text_cur)
+	while (text_cur < text_end)
 	{
-		if (*text_cur == '{' && ((&text_cur[7] < text_end) && text_cur[7] == '}'))
+		// SA-MP inline colors are exactly {RRGGBB}. Only consume a tag after
+		// validating all six hex digits; malformed braces remain ordinary text.
+		if (*text_cur == '{' && text_end - text_cur >= 8 && text_cur[7] == '}')
 		{
-			// print accumulated text
-			if (text_cur != text_start)
-			{
-				drawText(pos_cur, color_cur, text_start, text_cur, outlined, sz_font);
-				ImVec2 sz = calculateTextSize(text_start, text_cur, sz_font);
-				pos_cur.x += sz.x;
-			}
-
-			// new colorcode
 			ImVec4 col;
-			if (processInlineHexColor(text_cur + 1, text_cur + 7, col)) {
-				color_cur = col;
-			}
+			if (processInlineHexColor(text_cur + 1, text_cur + 7, col))
+			{
+				if (text_cur != text_start)
+				{
+					drawText(pos_cur, color_cur, text_start, text_cur, outlined, sz_font);
+					ImVec2 sz = calculateTextSize(text_start, text_cur, sz_font);
+					pos_cur.x += sz.x;
+				}
 
-			text_cur += 7;
-			text_start = text_cur + 1;
+				color_cur = col;
+				text_cur += 8;
+				text_start = text_cur;
+				continue;
+			}
 		}
 		else if (*text_cur == '\n')
 		{
-			// print accumulated text
 			if (text_cur != text_start)
-			{
 				drawText(pos_cur, color_cur, text_start, text_cur, outlined, sz_font);
-			}
 
 			pos_cur.x = pos.x;
 			pos_cur.y += sz_font;
@@ -163,7 +159,6 @@ void ImGuiRenderer::drawText(const ImVec2& pos, const ImColor& color, const std:
 		}
 		else if (*text_cur == '\t')
 		{
-			// print accumulated text
 			if (text_cur != text_start)
 			{
 				drawText(pos_cur, color_cur, text_start, text_cur, outlined, sz_font);
@@ -178,9 +173,8 @@ void ImGuiRenderer::drawText(const ImVec2& pos, const ImColor& color, const std:
 		++text_cur;
 	}
 
-	if (text_cur != text_start) {
+	if (text_cur != text_start)
 		drawText(pos_cur, color_cur, text_start, text_cur, outlined, sz_font);
-	}
 }
 
 ImVec2 ImGuiRenderer::calculateTextSize(const std::string& text, float font_size)
@@ -190,48 +184,48 @@ ImVec2 ImGuiRenderer::calculateTextSize(const std::string& text, float font_size
 
 	ImVec2 cur_size = { 0.0f, 0.0f };
 	if (font_size == 0.0f) font_size = m_font->FontSize;
-	
+
 	const char* text_start = text.c_str();
-	const char* text_cur = text.c_str();
-	const char* text_end = text.c_str() + text.length();
+	const char* text_cur = text_start;
+	const char* text_end = text_start + text.length();
 
-	while (*text_cur)
+	while (text_cur < text_end)
 	{
-		if (*text_cur == '{' && ((&text_cur[7] < text_end) && text_cur[7] == '}'))
+		if (*text_cur == '{' && text_end - text_cur >= 8 && text_cur[7] == '}')
 		{
-			if (text_cur != text_start)
+			ImVec4 ignored;
+			if (processInlineHexColor(text_cur + 1, text_cur + 7, ignored))
 			{
-				// текст до колор-кода
-				ImVec2 sz = calculateTextSize(text_start, text_cur, font_size);
-				cur_size.x += sz.x;
-				if (cur_size.y == 0.0f) cur_size.y = sz.y;
-			}
+				if (text_cur != text_start)
+				{
+					ImVec2 sz = calculateTextSize(text_start, text_cur, font_size);
+					cur_size.x += sz.x;
+					if (cur_size.y == 0.0f) cur_size.y = sz.y;
+				}
 
-			text_cur += 7;
-			text_start = text_cur + 1;
+				text_cur += 8;
+				text_start = text_cur;
+				continue;
+			}
 		}
 		else if (*text_cur == '\n')
 		{
 			if (text_cur != text_start)
 			{
-				// текст до \n
 				ImVec2 sz = calculateTextSize(text_start, text_cur, font_size);
 				cur_size.x += sz.x;
 				if (cur_size.y == 0.0f) cur_size.y = sz.y;
 			}
 
-			// обновляем text_size
 			text_size.x = ImMax(text_size.x, cur_size.x);
 			cur_size.y += font_size;
 			cur_size.x = 0.0f;
-
 			text_start = text_cur + 1;
 		}
 		else if (*text_cur == '\t')
 		{
 			if (text_cur != text_start)
 			{
-				// текст до \t
 				ImVec2 sz = calculateTextSize(text_start, text_cur, font_size);
 				cur_size.x += sz.x;
 				if (cur_size.y == 0.0f) cur_size.y = sz.y;
@@ -246,7 +240,6 @@ ImVec2 ImGuiRenderer::calculateTextSize(const std::string& text, float font_size
 
 	if (text_cur != text_start)
 	{
-		// текст без форматирования
 		ImVec2 sz = calculateTextSize(text_start, text_cur, font_size);
 		cur_size.x += sz.x;
 		if (cur_size.y == 0.0f) cur_size.y = sz.y;
@@ -263,25 +256,24 @@ ImVec2 ImGuiRenderer::calculateTextSize(const char* begin, const char* end, floa
 
 bool ImGuiRenderer::processInlineHexColor(const char* start, const char* end, ImVec4& color)
 {
-	const int hexCount = (int)(end - start);
-	if (hexCount == 6)
-	{
-		char hex[7];
-		strncpy(hex, start, hexCount);
-		hex[hexCount] = 0;
+	if (end - start != 6) return false;
 
-		unsigned int hexColor = 0;
-		if (sscanf(hex, "%x", &hexColor) > 0)
-		{
-			color.x = static_cast<float>((hexColor & 0x00FF0000) >> 16) / 255.0f;
-			color.y = static_cast<float>((hexColor & 0x0000FF00) >> 8) / 255.0f;
-			color.z = static_cast<float>((hexColor & 0x000000FF)) / 255.0f;
-			color.w = 1.0f;
-			return true;
-		}
+	uint32_t hexColor = 0;
+	for (const char* cur = start; cur != end; ++cur)
+	{
+		uint32_t digit;
+		if (*cur >= '0' && *cur <= '9') digit = static_cast<uint32_t>(*cur - '0');
+		else if (*cur >= 'A' && *cur <= 'F') digit = static_cast<uint32_t>(*cur - 'A' + 10);
+		else if (*cur >= 'a' && *cur <= 'f') digit = static_cast<uint32_t>(*cur - 'a' + 10);
+		else return false;
+		hexColor = (hexColor << 4) | digit;
 	}
 
-	return false;
+	color.x = static_cast<float>((hexColor >> 16) & 0xFF) / 255.0f;
+	color.y = static_cast<float>((hexColor >> 8) & 0xFF) / 255.0f;
+	color.z = static_cast<float>(hexColor & 0xFF) / 255.0f;
+	color.w = 1.0f;
+	return true;
 }
 
 void ImGuiRenderer::drawImage(const ImVec2& a, const ImVec2& b, ImTextureID texture)
