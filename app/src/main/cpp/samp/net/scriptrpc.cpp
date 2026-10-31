@@ -488,42 +488,35 @@ void ScrSetPlayerSkin(RPCParameters* rpcParams)
 // 0.3.7
 void ScrSetPlayerMapIcon(RPCParameters* rpcParams)
 {
-	unsigned char* Data = reinterpret_cast<unsigned char*>(rpcParams->input);
-	int iBitLength = rpcParams->numberOfBitsOfData;
+    // Wire payload: id(1), position(12), type(1), colour(4), style(1).
+    if (!pNetGame || !rpcParams || !rpcParams->input ||
+        rpcParams->numberOfBitsOfData < 152) return;
 
-	uint8_t byteIconID;
-	CVector vecPos;
-	uint8_t byteType;
-	uint32_t dwColor;
-	uint8_t byteStyle;
-	RakNet::BitStream bsData(Data, (iBitLength / 8) + 1, false);
-	bsData.Read(byteIconID);
-	bsData.Read(vecPos.x);
-	bsData.Read(vecPos.y);
-	bsData.Read(vecPos.z);
-	bsData.Read(byteType);
-	bsData.Read(dwColor);
-	bsData.Read(byteStyle);
+    uint8_t byteIconID = 0, byteType = 0, byteStyle = 0;
+    uint32_t dwColor = 0;
+    CVector vecPos{};
+    RakNet::BitStream bsData(rpcParams->input, 19, false);
+    if (!bsData.Read(byteIconID) || !bsData.Read(vecPos.x) ||
+        !bsData.Read(vecPos.y) || !bsData.Read(vecPos.z) ||
+        !bsData.Read(byteType) || !bsData.Read(dwColor) ||
+        !bsData.Read(byteStyle) || byteIconID >= MAX_MAP_ICONS) return;
 
-	// fix crash (invalid GTASA map icons)
-	if (byteIconID == 1 or
-		byteIconID == 2 or
-		byteIconID == 4 or
-		byteIconID == 56) byteIconID = 52;
+    // This fallback concerns a GTA sprite type, never the server's slot ID.
+    if (byteType == 1 || byteType == 2 || byteType == 4 || byteType == 56)
+        byteType = 52;
 
-	pNetGame->SetMapIcon(byteIconID, vecPos.x, vecPos.y, vecPos.z, byteType, dwColor, byteStyle);
+    pNetGame->SetMapIcon(byteIconID, vecPos.x, vecPos.y, vecPos.z,
+                         byteType, dwColor, byteStyle);
 }
 // 0.3.7
 void ScrRemovePlayerMapIcon(RPCParameters* rpcParams)
 {
-	unsigned char* Data = reinterpret_cast<unsigned char*>(rpcParams->input);
-	int iBitLength = rpcParams->numberOfBitsOfData;
-
-	uint8_t byteIconID;
-	RakNet::BitStream bsData(Data, (iBitLength / 8) + 1, false);
-	bsData.Read(byteIconID);
-
-	pNetGame->DisableMapIcon(byteIconID);
+    if (!pNetGame || !rpcParams || !rpcParams->input ||
+        rpcParams->numberOfBitsOfData < 8) return;
+    uint8_t byteIconID = 0;
+    RakNet::BitStream bsData(rpcParams->input, 1, false);
+    if (!bsData.Read(byteIconID) || byteIconID >= MAX_MAP_ICONS) return;
+    pNetGame->DisableMapIcon(byteIconID);
 }
 // 0.3.7
 void ScrShowNameTag(RPCParameters* rpcParams)
