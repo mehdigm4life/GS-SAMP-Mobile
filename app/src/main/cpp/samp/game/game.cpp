@@ -465,7 +465,7 @@ uint32_t CGame::CreateRadarMarkerIcon(uint8_t byteType, float fPosX, float fPosY
 //
 // Resolve the block using the exported libGTASA lookup first, then pass its
 // canonical stored spelling to every engine script command.
-typedef void* (*GetAnimationBlockFn)(const char*);
+typedef CAnimBlock* (*GetAnimationBlockFn)(const char*);
 
 static GetAnimationBlockFn ResolveGetAnimationBlock()
 {
