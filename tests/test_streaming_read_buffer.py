@@ -68,6 +68,10 @@ int main(int argc,char**) {
  assert(Ensure(first,second,half,0,1620,true,FailAlloc)==Result::NoMemory);
  assert(first==old&&second==split&&half==capacity);
  assert(Ensure(first,second,half,0,UINT32_MAX,true)==Result::Invalid);
+ assert(IsPlausibleImgSectorCount(0));
+ assert(IsPlausibleImgSectorCount(0xffff));
+ assert(!IsPlausibleImgSectorCount(0x10000));
+ assert(!IsPlausibleImgSectorCount(1786015488));
  assert(Ensure(first,second,half,1,half+1,true)==Result::Busy);
  half++;assert(Ensure(first,second,half,0,1,true)==Result::Invalid);half--;
  half=INT32_MAX;assert(Ensure(first,second,half,0,1,true)==Result::Invalid);half=capacity;

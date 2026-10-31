@@ -554,6 +554,8 @@ jobs:
       - name: Test object material ownership and crash report arbitration
         run: |
           python3 tests/test_streaming_read_buffer.py
+          python3 tests/test_streaming_metadata.py
+          python3 tests/test_animation_dispatch.py
           python3 tests/test_player_lifetime.py
           python3 tests/test_material_text_render.py
           python3 tests/test_map_icon_safety.py
@@ -599,12 +601,12 @@ jobs:
             if [ "${count:-0}" -ne 0 ]; then status=1; fi
           }
 
-          # animations: applied through CAnimManager, never against an unloaded block
-          check app/src/main/cpp/samp/game/AnimationSupport.cpp "BlendAnimationEP7RpClumpP19CAnimBlendHierarchyif"
-          check app/src/main/cpp/samp/game/AnimationSupport.cpp "ANIMATION_PARTIAL"
+          # animations: validate the block/name, then create the engine's SCM ped task
+          check app/src/main/cpp/samp/game/AnimationSupport.cpp "ScriptCommand(&apply_animation, pedId, name, lib, delta"
           check app/src/main/cpp/samp/game/AnimationSupport.cpp "block->bLoaded"
           check app/src/main/cpp/samp/game/AnimationSupport.cpp "getHierarchy(name, block)"
-          check app/src/main/cpp/samp/game/playerped.cpp "SAMPAnim::Apply(m_pPed"
+          check app/src/main/cpp/samp/game/AnimationSupport.cpp "legacy SCM path"
+          check app/src/main/cpp/samp/game/playerped.cpp "SAMPAnim::Apply(m_dwGTAId, m_pPed"
           check app/src/main/cpp/samp/game/playerped.cpp "SAMPAnim::IsPreloadName(szAnimName)"
           check app/src/main/cpp/samp/game/game.cpp "SAMPAnim::ProcessPending();"
           check app/src/main/cpp/samp/net/scriptrpc.cpp "pPlayerPed->ClearAnimations();"
@@ -700,7 +702,7 @@ jobs:
           needles=(
             "=== CRASH signal="
             "=== EXIT atexit stage="
-            "previous session was killed without reporting"
+            "previous session ended without a crash/exit report"
             "previous session ended cleanly"
             "STAGE %s | rss=%ldkB peak=%ldkB free=%ldkB"
             "free=%ldkB rss=%ldkB"

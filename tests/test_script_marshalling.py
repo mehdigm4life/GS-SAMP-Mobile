@@ -18,7 +18,9 @@ struct SCRIPT_COMMAND { uint16_t OpCode; char Params[16]; };
 char ScriptBuf[0xFF];
 void* pdwParamVars[18];
 int calls = 0;
+char lastScriptBuf[0xFF]{};
 uint8_t ExecuteScriptBuf() {
+    memcpy(lastScriptBuf, ScriptBuf, sizeof(lastScriptBuf));
     ++calls;
     gst->dwLocalVar[0] = 0x12345678;
     return 1;
@@ -46,11 +48,31 @@ int main() {
     assert(ScriptCommand(&text, oversized) == 0);
     assert(ScriptCommand(&text, (char*)nullptr) == 0);
     assert(calls == before);
+
+    // The production ApplyAnimation opcode layout and argument order used by
+    // the fixed animation path: actor, name, library, delta, four flags, time.
+    SCRIPT_COMMAND applyAnimation{0x0812, "issfiiiii"};
+    const float delta = 4.0f;
+    assert(ScriptCommand(&applyAnimation, 7, (char*)"handsup", (char*)"PED",
+                         (double)delta, 1, 0, 0, 0, -1) == 1);
+    assert((unsigned char)lastScriptBuf[0] == 0x12 && (unsigned char)lastScriptBuf[1] == 0x08);
+    assert((unsigned char)lastScriptBuf[2] == 0x01 && lastScriptBuf[3] == 7);
+    assert((unsigned char)lastScriptBuf[7] == 0x0e && lastScriptBuf[8] == 7);
+    assert(memcmp(lastScriptBuf + 9, "handsup", 7) == 0);
+    assert((unsigned char)lastScriptBuf[16] == 0x0e && lastScriptBuf[17] == 3);
+    assert(memcmp(lastScriptBuf + 18, "PED", 3) == 0);
+    assert((unsigned char)lastScriptBuf[21] == 0x06);
+    float encodedDelta; memcpy(&encodedDelta, lastScriptBuf + 22, sizeof(encodedDelta));
+    assert(encodedDelta == delta);
+    assert(lastScriptBuf[26] == 1 && lastScriptBuf[31] == 1 &&
+           lastScriptBuf[36] == 1 && lastScriptBuf[41] == 1 &&
+           lastScriptBuf[46] == 1 && (unsigned char)lastScriptBuf[47] == 0xff);
+
     // A long string followed by a reference must not overrun ScriptBuf.
     SCRIPT_COMMAND combined{1, "sv"};
     char maximum[251]; memset(maximum, 'a', 250); maximum[250] = 0;
     assert(ScriptCommand(&combined, maximum, &guarded.value) == 0);
-    assert(calls == before);
+    assert(calls == before + 1);
 }
 '''
 with tempfile.TemporaryDirectory() as d:
@@ -59,4 +81,4 @@ with tempfile.TemporaryDirectory() as d:
     exe = str(Path(d) / 'test')
     subprocess.run(['g++', '-std=c++17', '-fsanitize=address,undefined', '-fno-pie', '-no-pie', str(cpp), '-o', exe], check=True)
     subprocess.run([exe], check=True)
-print('PASS: SCM references use four bytes; invalid parameters never reach the VM')
+print('PASS: SCM references use four bytes; invalid parameters are rejected; ApplyAnimation opcode and argument order verified')
