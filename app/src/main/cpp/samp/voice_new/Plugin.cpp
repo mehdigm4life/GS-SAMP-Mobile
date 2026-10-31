@@ -12,6 +12,7 @@
 #include "PluginConfig.h"
 #include "MicroIcon.h"
 #include "SpeakerList.h"
+#include "../gui/MicGlyph.h"
 //#include "PluginMenu.h"
 #include "GlobalStream.h"
 #include "StreamAtPoint.h"
@@ -23,6 +24,51 @@
 extern CAudioStream* pAudioStream;
 
 extern UI* pUI;
+
+/*
+    The microphone control of the voice window.
+
+    It used to be a plain text button - the word MIC in the default font -
+    because the icon textures it wants ("voiceactive" / "voicepassive") are not
+    in the texture database this client installs. The control is now drawn:
+    rounded background, accent outline and the shared MicGlyph, so it looks the
+    same as the in-game TALK button and never depends on a texture.
+*/
+static bool MicIconButton(const char* id, const ImVec2& size, bool active, bool dimmed)
+{
+    if (size.x < 2.0f || size.y < 2.0f)
+        return false;
+
+    ImGui::PushID(id);
+
+    const ImVec2 pos = ImGui::GetCursorScreenPos();
+    const bool pressed = ImGui::InvisibleButton("##mic", size);
+    const bool hovered = ImGui::IsItemHovered();
+    const bool held = ImGui::IsItemActive();
+
+    ImDrawList* drawList = ImGui::GetWindowDrawList();
+    const float rounding = (size.x < size.y ? size.x : size.y) * 0.24f;
+
+    ImU32 background;
+    if (dimmed)          background = IM_COL32(40, 40, 40, 170);
+    else if (active)     background = IM_COL32(199, 33, 33, 240);
+    else if (held || hovered) background = IM_COL32(51, 66, 97, 240);
+    else                 background = IM_COL32(28, 28, 28, 210);
+
+    drawList->AddRectFilled(pos, ImVec2(pos.x + size.x, pos.y + size.y), background, rounding);
+    drawList->AddRect(pos, ImVec2(pos.x + size.x, pos.y + size.y),
+        active ? IM_COL32(255, 107, 107, 255) : IM_COL32(100, 149, 237, 255),
+        rounding, 15, (size.x < size.y ? size.x : size.y) * 0.045f);
+
+    MicGlyph::Draw(drawList,
+        ImVec2(pos.x + size.x * 0.5f, pos.y + size.y * 0.46f),
+        (size.y * 0.58f < size.x * 0.62f ? size.y * 0.58f : size.x * 0.62f),
+        dimmed ? IM_COL32(165, 165, 165, 200) : IM_COL32(240, 245, 255, 255),
+        active ? 0.55f : 0.0f);
+
+    ImGui::PopID();
+    return pressed;
+}
 
 bool Plugin::OnPluginLoad() noexcept
 {
@@ -212,7 +258,7 @@ void Plugin::MainLoop()
                 // button, so voice chat stays usable instead of disappearing.
                 const bool pressed = (micTexture != nullptr && micTexture->raster != nullptr)
                     ? ImGui::ImageButton((ImTextureID)micTexture->raster, vecButSize)
-                    : ImGui::Button("MIC", vecButSize);
+                    : MicIconButton("talk", vecButSize, Plugin::recordStatus, !PluginConfig::GetMicroEnable());
 
                 if (pressed)
                 {
@@ -283,7 +329,7 @@ void Plugin::MainLoop()
                 RwTexture* mutedTexture = MicroIcon::tMutedIcon;
                 const bool mutePressed = (mutedTexture != nullptr && mutedTexture->raster != nullptr)
                     ? ImGui::ImageButton((ImTextureID)mutedTexture->raster, vecButSize)
-                    : ImGui::Button("MIC", vecButSize);
+                    : MicIconButton("mute", vecButSize, false, true);
 
                 if (mutePressed)
                 {

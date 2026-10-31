@@ -7,6 +7,8 @@ public:
 
 	/* font */
 	static float fontSize() { return m_fontSize; }
+	static ImVec2 displaySize() { return m_displaySize; }
+	static ImVec2 scaleFactor() { return m_scaleFactor; }
 	static float outlineSize() { return m_outlineSize; }
 
 	/* ////////////////// sizes ////////////////// */
@@ -70,6 +72,7 @@ private:
 	/* scaling */
 	static ImVec2 m_baseSize;
 	static ImVec2 m_scaleFactor;
+	static ImVec2 m_displaySize;
 
 	/* font */
 	static float m_fontSize;

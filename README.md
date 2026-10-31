@@ -224,6 +224,50 @@ loading screen. The APK now ships the font
 dear imgui, tries the configured name plus the other known locations, and falls
 back to the built-in `ProggyClean` font - it never aborts.
 
+### Why the character stayed frozen and the buttons were missing
+
+Three separate reports, one build.
+
+**Animations.** The client used to hand every animation to the engine as a
+script task (`apply_animation`, opcode 0x0812) without knowing whether the
+library was loaded or whether the animation name existed in it. A task built
+around an animation that is not there never finishes: the ped keeps it and
+stands frozen for the rest of the session. The animation is now applied the same
+way the engine's own `CTaskSimpleRunAnim` applies it -
+`CAnimManager::GetAnimation(name, block)` followed by
+`CAnimManager::BlendAnimation(clump, hierarchy, flags, rate)`, with the flags
+`PlayAnimScriptCommand` computes (partial, looped, translations, last frame) - so
+it is known *before* the ped is touched whether there is anything to play.
+Requests for a library that is still streaming are queued and applied on the
+frame its data lands, `"null"` is treated as the preload it is, and
+`ClearAnimations` now actually stops the animation instead of only moving the
+ped. Libraries this install does not carry (only `CRACK` in practice) are
+skipped, and library names are logged once instead of on every request.
+
+**The TALK control.** The texture database has no microphone artwork, so the
+button fell back to the word MIC in the chat font. It is now drawn: rounded
+background, accent outline, pulsing ring while the microphone is open and the
+microphone glyph from `gui/MicGlyph.h` - the same glyph the voice window uses
+for its icon button.
+
+**The action bar.** `OpenButton` started `false`, and every `CButton` returned
+from `draw()` while it was false: the bar showed only the `>>` toggle, so the
+controls the server expects (H, F, Y, N, G, ...) never appeared. The bar is
+always visible now, the two toggles that could hide it are gone, and the layout
+uses one uniform scale factor (the smaller of the two axis ratios) instead of two
+- that is what pushed the right end of the bar outside the panel and made
+captions overflow their buttons.
+
+**No more aborts.** `RLEDecompress` threw `std::runtime_error` from inside a
+streaming hook; nothing catches there, so `std::terminate()` ended the process
+(the last line of such a session was an `rled` error). It never throws now: it
+stops at the end of its source, zero-fills the rest of the destination so the
+caller gets a defined buffer, and reports the truncation. The same treatment was
+given to the other throwing paths reached from the network thread -
+`CVehicle`/`CActor` ("Model not loaded", which closed the game when a server
+spawned something this install cannot stream), `string_format` and the voice
+channel constructor.
+
 ## Building
 
 Clone the `GTA-2.10` branch:

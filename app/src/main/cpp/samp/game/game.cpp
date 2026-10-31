@@ -14,6 +14,7 @@
 #include "game/Models/ModelInfo.h"
 #include "game/Collision/Collision.h"
 #include <dlfcn.h>
+#include "AnimationSupport.h"
 
 void ApplySAMPPatchesInGame();
 void InitScripting();
@@ -544,9 +545,22 @@ CVehicle* CGame::NewVehicle(int iVehicleType, float fX, float fY, float fZ, floa
 		bPreloaded = true;
 	}
 
-	CVehicle* pNewVehicle = new CVehicle(iVehicleType, fX, fY, fZ, fRotation, bPreloaded, bAddSiren);
-
-	return pNewVehicle;
+	/*
+		CVehicle's constructor throws when the model cannot be streamed. It is
+		called straight from the network path (RPC_ScrCreateVehicle /
+		RPC_ScrInitGame), where nothing catches: std::terminate() then aborts
+		the process - a server spawning a vehicle this install cannot load
+		closed the game. The pool already handles a null result.
+	*/
+	try
+	{
+		return new CVehicle(iVehicleType, fX, fY, fZ, fRotation, bPreloaded, bAddSiren);
+	}
+	catch (const std::exception& exception)
+	{
+		FLog("vehicle model %d could not be created: %s", iVehicleType, exception.what());
+		return nullptr;
+	}
 }
 // 0.3.7
 void CGame::SetCheckpointInformation(CVector* vecPos, CVector* vecSize)
@@ -853,6 +867,14 @@ void CGame::Process() {
     }
 
     MainLoop();
+
+    /*
+        Animations whose library was still streaming when the server asked for
+        them are applied here, on the frame their data lands. Without this the
+        request was simply lost and the ped stayed in its idle pose.
+    */
+    SAMPAnim::ProcessPending();
+
     if (pNetGame)
     {
         if(pGame && pGame->FindPlayerPed() && pUI && pUI->buttonpanel() && pUI->buttonpanel()->m_bH)

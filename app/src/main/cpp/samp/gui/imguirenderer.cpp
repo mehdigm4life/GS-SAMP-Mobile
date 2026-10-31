@@ -99,6 +99,22 @@ void ImGuiRenderer::drawText(const ImVec2& pos, const ImColor& color,
 	m_drawList->AddText(m_font, sz_font, pos, color, begin, end);
 }
 
+void ImGuiRenderer::drawRoundRectFilled(const ImVec2& a, const ImVec2& b, float rounding, const ImColor& color)
+{
+	m_drawList->AddRectFilled(a, b, color, rounding);
+}
+
+void ImGuiRenderer::drawRoundRect(const ImVec2& a, const ImVec2& b, float rounding, const ImColor& color, float thickness)
+{
+	m_drawList->AddRect(a, b, color, rounding, 15, thickness);
+}
+
+void ImGuiRenderer::drawCircleFilled(const ImVec2& center, float radius, const ImColor& color, int segments)
+{
+	if (radius <= 0.0f) return;
+	m_drawList->AddCircleFilled(center, radius, color, segments);
+}
+
 void ImGuiRenderer::drawText(const ImVec2& pos, const ImColor& color, const std::string& text, bool outlined, float font_size)
 {
 	if (text.empty()) return;

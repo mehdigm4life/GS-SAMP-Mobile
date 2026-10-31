@@ -19,6 +19,10 @@ CActor::CActor(int iSkin, float fX, float fY, float fZ, float fAngle)
 
     m_pPed = GamePool_Ped_GetAt(m_dwGTAId);
 
+    // The game refused the actor (invalid skin or a full ped pool).
+    if (!m_pPed)
+        return;
+
     ForceTargetRotation(fAngle);
     m_pPed->SetPosn(fX, fY, fZ);
 
@@ -27,6 +31,9 @@ CActor::CActor(int iSkin, float fX, float fY, float fZ, float fAngle)
 // 0.3.7
 CActor::~CActor()
 {
+    if (!m_pPed)
+        return;
+
     auto modelId = m_pPed->m_nModelIndex;
 
     if (IsValidGamePed(m_pPed))

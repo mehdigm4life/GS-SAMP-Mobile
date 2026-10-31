@@ -29,15 +29,33 @@ void CActorPool::New(NEW_ACTOR* pNewActor)
 		Delete(pNewActor->ActorID);
 	}
 
-	CActor* pActor = new CActor(pNewActor->iSkin,
-		pNewActor->vecPos.x,
-		pNewActor->vecPos.y,
-		pNewActor->vecPos.z,
-		pNewActor->fAngle);
+	/*
+		CActor throws when its skin cannot be streamed, straight from the
+		network path where nothing catches - that aborted the process. An actor
+		the install cannot create is simply skipped, like the vehicle pool does.
+	*/
+	CActor* pActor = nullptr;
+	try
+	{
+		pActor = new CActor(pNewActor->iSkin,
+			pNewActor->vecPos.x,
+			pNewActor->vecPos.y,
+			pNewActor->vecPos.z,
+			pNewActor->fAngle);
+	}
+	catch (const std::exception& exception)
+	{
+		FLog("actor skin %d could not be created: %s", pNewActor->iSkin, exception.what());
+		return;
+	}
+
+	if (!pActor || !pActor->m_pPed)
+	{
+		delete pActor;
+		return;
+	}
 
 	m_pActors[pNewActor->ActorID] = pActor;
-
-	if (!pActor) return;
 
 	m_pGtaPed[pNewActor->ActorID] = pActor->m_pPed;
 	m_bActorSlotState[pNewActor->ActorID] = true;

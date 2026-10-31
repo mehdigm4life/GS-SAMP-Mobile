@@ -8,6 +8,7 @@
 #include "Streaming.h"
 #include "World.h"
 #include "game/Models/ModelInfo.h"
+#include "AnimationSupport.h"
 
 extern CGame* pGame;
 extern CNetGame* pNetGame;
@@ -792,21 +793,64 @@ void CPlayerPed::ApplyAnimation(const char* szAnimName, const char* szAnimLib, f
 	// Servers preloading every block they know hit that every session.
 	if (!pGame->HasAnimationBlock(szAnimLib))
 	{
-		static int s_missingBlocks = 0;
-		if (s_missingBlocks < 8)
-		{
+		if (SAMPAnim::ShouldLogMissingBlock(szAnimLib))
 			FLog("animation block %s is not installed here, skipping %s", szAnimLib, szAnimName);
-			s_missingBlocks++;
-		}
 		return;
 	}
 
-	if(!pGame->IsAnimationLoaded(szAnimLib))
+	// ApplyAnimation(id, lib, "null", ...) is how a server preloads a library:
+	// the animation name is not real, only the load request matters.
+	if (SAMPAnim::IsPreloadName(szAnimName))
+	{
 		pGame->RequestAnimation(szAnimLib);
+		return;
+	}
 
-	// Applying it twice (the old code did, when the block was still loading)
-	// queued the same animation twice in the same frame.
+	/*
+		Apply it the way the engine does from script opcode 0x0812, but through
+		CAnimManager directly:
+
+		  - the block has to be loaded, otherwise the hierarchy lookup finds
+		    nothing and the task that used to be created here never finished -
+		    a ped carrying such a task stands frozen for good;
+		  - the animation name has to exist in that block, otherwise there is
+		    nothing to play (and now that is known before touching the ped);
+		  - a request for a block that is still streaming is remembered and
+		    applied as soon as it lands, so the first animation of a session is
+		    not lost any more.
+	*/
+	if (!SAMPAnim::BlockLoaded(szAnimLib))
+	{
+		pGame->RequestAnimation(szAnimLib);
+		SAMPAnim::Defer(m_pPed, m_dwGTAId, szAnimLib, szAnimName, fT, opt1, opt2, opt3, opt4, iTime);
+		return;
+	}
+
+	// The block is here. A name it does not carry would only produce a task
+	// that never starts, so it is dropped instead of being handed to the engine.
+	if (!SAMPAnim::HasAnimation(szAnimLib, szAnimName))
+	{
+		if (SAMPAnim::ShouldLogMissingBlock(szAnimLib))
+			FLog("animation %s is not in block %s, skipping", szAnimName, szAnimLib);
+		return;
+	}
+
+	if (SAMPAnim::Apply(m_pPed, szAnimLib, szAnimName, fT, opt1, opt2, opt3, opt4, iTime))
+		return;
+
+	// Last resort: the script command (32-bit builds, or a hierarchy the
+	// direct call refused). It is only reached when the animation really is
+	// there, so it can no longer leave a task that never starts.
 	ScriptCommand(&apply_animation, m_dwGTAId, szAnimName, szAnimLib, fT, opt1, opt2, opt3, opt4, iTime);
+}
+
+// CLEAR_ANIMATIONS: the server asked for the ped to stop what it is playing.
+void CPlayerPed::ClearAnimations()
+{
+	if (!m_pPed) return;
+	if (!GamePool_Ped_GetAt(m_dwGTAId)) return;
+
+	SAMPAnim::StopAll(m_pPed);
 }
 
 // 0.3.7
