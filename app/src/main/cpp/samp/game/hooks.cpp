@@ -1667,50 +1667,88 @@ size_t OS_FileRead_hook(OSFile a1, void *buffer, size_t numBytes)
 }
 
 void (*RLEDecompress)(uint8_t* pDest, size_t uiDestSize, uint8_t const* pSrc, size_t uiSegSize, uint32_t uiEscape);
+
+/*
+    Bounded RLE decompressor.
+
+    The previous version threw std::runtime_error from inside a hook that runs
+    on the streaming path. Nothing catches an exception there, so
+    std::terminate() -> abort() ended the process: the last line of a session's
+    log stopped in the decompressor and the game was simply gone (an abort, with
+    no Java exception and no signal handler entry). It also left the
+    destination buffer half written, which is worse than an empty one because
+    the caller keeps parsing it as if it were the file.
+
+    This version never throws and never writes outside the destination: on a
+    truncated or corrupt source it stops, zero-fills the rest and reports the
+    count (once per run) so the frame that asked for the data gets a defined
+    buffer instead of killing the process.
+*/
 void RLEDecompress_hook(uint8_t* pDest, size_t uiDestSize, const uint8_t* pSrc, size_t uiSegSize, uint32_t uiEscape) {
 
     if (!pDest || !pSrc || uiDestSize == 0 || uiSegSize == 0) {
-        // Обработка некорректных входных данных или размеров
-        // Здесь можно сгенерировать исключение или вернуть код ошибки
         return;
     }
 
+    static int s_truncatedReports = 0;
+
     const uint8_t* pTempSrc = pSrc;
-    const uint8_t* const pEndOfDest = pDest + uiDestSize;
-    const uint8_t* const pEndOfSrc = pSrc + dwRLEDecompressSourceSize; // Предполагается, что dwRLEDecompressSourceSize определено правильно
+    uint8_t* const pEndOfDest = pDest + uiDestSize;
+    /* dwRLEDecompressSourceSize belongs to the last OS_FileRead; when it is
+       unset the destination size is the safest bound available. */
+    const size_t sourceSize = (dwRLEDecompressSourceSize != 0) ? dwRLEDecompressSourceSize : uiDestSize;
+    const uint8_t* const pEndOfSrc = pSrc + sourceSize;
 
-    try {
-        while (pDest < pEndOfDest && pTempSrc < pEndOfSrc) {
-            if (*pTempSrc == uiEscape) {
-                if (pTempSrc + 1 >= pEndOfSrc || pTempSrc[1] == 0 || pTempSrc + 2 + uiSegSize > pEndOfSrc) {
-                    // Обработка ошибки, неверное значение ucCurSeg или недостаточно данных в исходном буфере
-                    throw std::runtime_error("rled error 1");
-                }
+    bool truncated = false;
 
-                uint8_t ucCurSeg = pTempSrc[1];
-                while (ucCurSeg--) {
-                    if (pDest + uiSegSize > pEndOfDest) {
-                        // Обработка ошибки, недостаточно места в целевом буфере
-                        throw std::runtime_error("rled error 2");
-                    }
-                    memcpy(pDest, pTempSrc + 2, uiSegSize);
-                    pDest += uiSegSize;
-                }
-                pTempSrc += 2 + uiSegSize;
-            } else {
-                if (pDest + uiSegSize > pEndOfDest || pTempSrc + uiSegSize > pEndOfSrc) {
-                    // Обработка ошибки, недостаточно данных в исходном буфере или недостаточно места в целевом буфере
-                    throw std::runtime_error("rled error 3");
-                }
-                memcpy(pDest, pTempSrc, uiSegSize);
-                pDest += uiSegSize;
-                pTempSrc += uiSegSize;
-            }
+    while (pDest < pEndOfDest) {
+        if (pTempSrc >= pEndOfSrc) {
+            truncated = true;
+            break;
         }
 
-        dwRLEDecompressSourceSize = 0;
-    } catch (const std::exception& e) {
-        FLog("%s", e.what());
+        if (*pTempSrc == uiEscape) {
+            if (pTempSrc + 1 >= pEndOfSrc) {
+                truncated = true;
+                break;
+            }
+
+            const uint8_t ucCurSeg = pTempSrc[1];
+            if (pTempSrc + 2 + uiSegSize > pEndOfSrc) {
+                truncated = true;
+                break;
+            }
+            if ((size_t)(pEndOfDest - pDest) < (size_t)ucCurSeg * uiSegSize) {
+                truncated = true;
+                break;
+            }
+
+            for (uint8_t i = 0; i < ucCurSeg; i++) {
+                memcpy(pDest, pTempSrc + 2, uiSegSize);
+                pDest += uiSegSize;
+            }
+            pTempSrc += 2 + uiSegSize;
+        } else {
+            if (pTempSrc + uiSegSize > pEndOfSrc || (size_t)(pEndOfDest - pDest) < uiSegSize) {
+                truncated = true;
+                break;
+            }
+
+            memcpy(pDest, pTempSrc, uiSegSize);
+            pDest += uiSegSize;
+            pTempSrc += uiSegSize;
+        }
+    }
+
+    dwRLEDecompressSourceSize = 0;
+
+    if (pDest < pEndOfDest) {
+        memset(pDest, 0, (size_t)(pEndOfDest - pDest));
+    }
+
+    if (truncated && s_truncatedReports < 8) {
+        s_truncatedReports++;
+        FLog("rled: truncated source (%zu of %zu bytes left), rest zero-filled", (size_t)(pEndOfSrc - pTempSrc), uiDestSize);
     }
 }
 
