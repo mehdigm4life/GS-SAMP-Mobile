@@ -551,6 +551,9 @@ jobs:
           cat anim.md >> "$GITHUB_STEP_SUMMARY"
           exit $status
 
+      - name: Test textdraw texture ownership and slot bounds
+        run: python3 tests/test_textdraw_safety.py
+
       - name: Verify animations, the TALK icon and the action bar
         run: |
           set -uo pipefail
@@ -600,9 +603,12 @@ jobs:
           check app/src/main/cpp/samp/voice_new/Plugin.cpp "MicIconButton(\"talk\""
           reject app/src/main/cpp/samp/voice_new/Plugin.cpp 'ImGui::Button("MIC"'
 
-          # the action bar is visible from the first frame
-          check app/src/main/cpp/samp/gui/samp_widgets/buttonpanel.cpp "bool OpenButton = true;"
-          reject app/src/main/cpp/samp/gui/widgets/button.cpp "if (OpenButton == false) return;"
+          # "<<"/">>" keep working: the bar can be hidden and shown again
+          check app/src/main/cpp/samp/gui/samp_widgets/buttonpanel.cpp "bool OpenButton = false;"
+          check app/src/main/cpp/samp/gui/samp_widgets/buttonpanel.cpp "this->addChild(m_bOpen);"
+          check app/src/main/cpp/samp/gui/samp_widgets/buttonpanel.cpp "this->addChild(m_bClose);"
+          check app/src/main/cpp/samp/gui/widgets/button.cpp "if (OpenButton == false) return;"
+          check app/src/main/cpp/samp/gui/widgets/button.cpp "this->setPosition(ImVec2(15.0f, 15.0f));"
 
           # one uniform scale keeps every widget inside the screen
           check app/src/main/cpp/samp/gui/uisettings.cpp "ImMin(size.x / m_baseSize.x, size.y / m_baseSize.y)"

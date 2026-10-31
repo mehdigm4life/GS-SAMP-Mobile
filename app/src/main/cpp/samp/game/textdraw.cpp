@@ -70,13 +70,17 @@ CTextDraw::CTextDraw(TEXT_DRAW_TRANSMIT* pTextDrawTransmit, const char* szText)
 // 0.3.7
 CTextDraw::~CTextDraw()
 {
-    if (m_TextDrawData.iTextureSlot != -1 && m_TextDrawData.iTextureSlot != 0x0 && TextDrawTexture[m_TextDrawData.iTextureSlot]) RwTextureDestroy((RwTexture*)TextDrawTexture[m_TextDrawData.iTextureSlot]);
+    // The slot helper releases the owned reference exactly once.
     DestroyTextDrawTexture(m_TextDrawData.iTextureSlot);
 }
 
 uintptr_t LoadFromTxdSlot(const char* szSlot, const char* szTexture)
 {
-    RwTexture* tex;
+    // Never let an uninitialised pointer reach the renderer.
+    RwTexture* tex = nullptr;
+    if (szSlot == nullptr || szTexture == nullptr)
+        return 0;
+
     if (strncmp(szSlot, "none", 5u))
     {
         /*uintptr_t v10 = ((int (*)(const char*))(g_libGTASA + 0x55BB85))(szSlot);
@@ -123,7 +127,7 @@ uintptr_t LoadFromTxdSlot(const char* szSlot, const char* szTexture)
         tex = (RwTexture*)CUtil::LoadTextureFromDB(szSlot, szTexture);
     }
 
-   FLog("%s loaded from %s", szTexture, szSlot);
+    FLog("%s %s from %s", szTexture, tex ? "loaded" : "is missing", szSlot);
     return (uintptr_t)tex;
 }
 
@@ -228,6 +232,19 @@ void CTextDraw::DrawDefault()
 
 void CTextDraw::DrawTextured()
 {
+    /*
+        A style 4/5 textdraw without a free texture slot (or one whose texture
+        never loaded) has iTextureSlot == -1 or an empty entry. TextDrawTexture
+        is a 200 entry array indexed by that slot, so -1 read the pointer stored
+        in front of the array and drew with it - the same garbage-texture crash
+        as above. Nothing to draw is not an error, so it just returns.
+    */
+    if (m_TextDrawData.iTextureSlot < 0 || m_TextDrawData.iTextureSlot >= 200)
+        return;
+
+    if (TextDrawTexture[m_TextDrawData.iTextureSlot] == 0)
+        return;
+
     float scaleX = (float)(RsGlobal->maximumWidth) * (1.0f / 640.0f);
     float scaleY = (float)(RsGlobal->maximumHeight) * (1.0f / 448.0f);
 
@@ -268,6 +285,7 @@ void CTextDraw::SetText(const char* szText)
     if (m_TextDrawData.dwStyle == 4 && m_TextDrawData.iTextureSlot != -1)
     {
         DestroyTextDrawTexture(m_TextDrawData.iTextureSlot);
+        m_TextDrawData.iTextureSlot = GetFreeTextDrawTextureSlot();
         LoadTexture();
     }
 }
@@ -340,7 +358,16 @@ void CTextDraw::SnapshotProcess()
 
     if (snapshot)
     {
-        m_TextDrawData.iTextureSlot = GetFreeTextDrawTextureSlot();
-        TextDrawTexture[m_TextDrawData.iTextureSlot] = snapshot;
+        const int slot = GetFreeTextDrawTextureSlot();
+        /* GetFreeTextDrawTextureSlot() returns -1 once all 200 slots are taken;
+           writing TextDrawTexture[-1] corrupted the globals in front of it. */
+        if (slot < 0)
+        {
+            RwTextureDestroy(reinterpret_cast<RwTexture*>(snapshot));
+            return;
+        }
+
+        m_TextDrawData.iTextureSlot = slot;
+        TextDrawTexture[slot] = snapshot;
     }
 }

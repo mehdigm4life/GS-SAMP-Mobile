@@ -2018,7 +2018,12 @@ uintptr_t LoadTexture(const char* texname)
 
 RwTexture* LoadTextureFromTxd(const char* txdname, const char* texturename)
 {
-    RwTexture* tex;
+    /* Same uninitialised-pointer bug as LoadFromTxdSlot(): with txdname/name
+       "none" the block below is skipped and every "if (!tex)" read the stack. */
+    RwTexture* tex = nullptr;
+    if (txdname == nullptr || texturename == nullptr)
+        return nullptr;
+
     if (strncmp(txdname, "none", 5u))
     {
         uintptr_t v10 = ((int (*)(const char*))(g_libGTASA + 0x5D3E60+1))(txdname);
@@ -2308,9 +2313,10 @@ void DrawTextureUV(uintptr_t texture, CRect* rect, uint32_t dwColor, float *uv)
 	if (texture)
 	{
 		RwRenderStateSet(rwRENDERSTATETEXTUREFILTER, (void*)rwFILTERLINEAR);
+		// The engine expects CSprite2d* (a texture pointer holder), not RwTexture*.
 		// CSprite2d::Draw(CRect  const& posn, CRGBA  const& color, float u1, float v1, float u2, float v2, float u3, float v3, float u4, float v4);
 		((void(*)(uintptr_t, CRect*, uint32_t*, float, float, float, float, float, float, float, float))
-			(g_libGTASA + (VER_x32?0x1974EC + 1:0x6EDC5C)))(texture, rect, &dwColor, uv[0], uv[1], uv[2], uv[3], uv[4], uv[5], uv[6], uv[7]);
+			(g_libGTASA + (VER_x32?0x1974EC + 1:0x6EDC5C)))((uintptr_t)&texture, rect, &dwColor, uv[0], uv[1], uv[2], uv[3], uv[4], uv[5], uv[6], uv[7]);
 	}
 }
 
