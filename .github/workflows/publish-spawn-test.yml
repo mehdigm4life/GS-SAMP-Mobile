@@ -17,20 +17,20 @@ jobs:
       - name: Retrieve the already tested APK without rebuilding
         run: |
           set -euo pipefail
-          test "$(gh run view 41203282974 --json conclusion --jq .conclusion)" = success
-          test "$(gh run view 41203282974 --json headSha --jq .headSha)" = a011b35b979de7fcbbe8a1669a1afa46030f9cf4
-          gh run download 41203282974 -n asan-build-evidence -D evidence
+          test "$(gh run view 41204418442 --json conclusion --jq .conclusion)" = success
+          test "$(gh run view 41204418442 --json headSha --jq .headSha)" = e564952db58ad23963cafb90b06f04faee05a2b0
+          gh run download 41204418442 -n asan-build-evidence -D evidence
           cd evidence
           test -s GS-SAMP-spawn-ASAN.apk
           sha256sum -c analysis/asan-apk.sha256
           echo '::notice::Original successful build APK checksum verified; no rebuild or code changes.'
       - name: Publish the test download requested by the user
         run: |
-          if ! gh release create asan-spawn-5 evidence/GS-SAMP-spawn-ASAN.apk \
+          if ! gh release create asan-spawn-6 evidence/GS-SAMP-spawn-ASAN.apk \
             --target "$GITHUB_SHA" \
             --prerelease --latest=false \
-            --title 'Spawn diagnostic 5 — material-text lifetime repair' \
-            --notes 'Requested device-test APK from successful run 41203282974, unchanged and checksum-verified. Fixes reproduced material-text stack-use-after-scope and validates size/alignment; retains all 12 capability-copy fixes. ARM64 ASan diagnostic, NOT a verified spawn stability fix. Install over the existing app without deleting data. Reports: /storage/emulated/0/GS-SAMP/asan.txt and logcat.txt. Increased memory/CPU use.' >publish.log 2>&1; then
+            --title 'Spawn diagnostic 6 — player lifecycle repair' \
+            --notes 'Requested device-test APK from successful run 41204418442, unchanged and checksum-verified. Fixes the symbol-confirmed CGame::RemovePlayer heap-use-after-free, exhausted slots, failed creation and stale ped destruction. Includes 3000-cycle lifecycle regression and all previous fixes. ARM64 ASan diagnostic, NOT a verified spawn stability fix. Install over the existing app without deleting data. Reports: /storage/emulated/0/GS-SAMP/asan.txt and logcat.txt. Increased memory/CPU use.' >publish.log 2>&1; then
             python3 - <<'PYERR'
           from pathlib import Path
           text = Path('publish.log').read_text()
