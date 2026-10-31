@@ -16,3 +16,16 @@ for file in sorted(root.rglob('*.java')):
     if count >= 1500: break
 Path('analysis/JAVA-INDEX.txt').write_text('\n'.join(lines)+'\n')
 print(f'Indexed {count} candidate loader/JNI/config lines; see JAVA-INDEX.txt')
+# A compact evidence excerpt is accessible via the Checks API when artifact
+# downloads are blocked. Do not print the entire third-party decompilation.
+selected = []
+for line in lines:
+    if any(token in line.lower() for token in ('com/samp/', 'com/nvidia/', 'gtasa', 'libsamp', 'scand', 'monetloader', 'system.loadlibrary', 'files.json')):
+        selected.append(line)
+        if len(selected) == 100: break
+excerpt = '\n'.join(selected) or 'No matching loader evidence in the bounded index; inspect artifacts.'
+print('::notice::'+('Loader/JNI excerpt (partial):\n'+excerpt).replace('%','%25').replace('\n','%0A').replace('\r','%0D'))
+log = Path('analysis/jadx.log')
+if log.exists():
+    tail = '\n'.join(log.read_text(errors='replace').splitlines()[-25:])
+    print('::notice::'+('JADX log tail:\n'+tail).replace('%','%25').replace('\n','%0A').replace('\r','%0D'))
