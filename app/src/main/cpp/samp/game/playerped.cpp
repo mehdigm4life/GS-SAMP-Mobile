@@ -780,20 +780,32 @@ void CPlayerPed::GetTransformedBonePosition(int iBoneID, CVector* vecOut)
 
 void CPlayerPed::ApplyAnimation(const char* szAnimName, const char* szAnimLib, float fT, int opt1, int opt2, int opt3, int opt4, int iTime)
 {
-	int iWaitAnimLoad = 0;
-
 	if(!m_pPed) return;
 	if(!GamePool_Ped_GetAt(m_dwGTAId)) return;
+	if (!szAnimName || !szAnimLib) return;
 
 	if(!strcasecmp(szAnimLib,"SEX")) return;
 	if(!strcasecmp(szAnimLib,"SAMP")) return;
 
-	if(!pGame->IsAnimationLoaded(szAnimLib))
+	// A block this client's ANIMGRP.DAT does not carry can never be loaded, and
+	// the engine's own "is it loaded" path dies on it (see CGame::HasAnimationBlock).
+	// Servers preloading every block they know hit that every session.
+	if (!pGame->HasAnimationBlock(szAnimLib))
 	{
-		pGame->RequestAnimation(szAnimLib);
-        ScriptCommand(&apply_animation, m_dwGTAId, szAnimName, szAnimLib, fT, opt1, opt2, opt3, opt4, iTime);
+		static int s_missingBlocks = 0;
+		if (s_missingBlocks < 8)
+		{
+			FLog("animation block %s is not installed here, skipping %s", szAnimLib, szAnimName);
+			s_missingBlocks++;
+		}
+		return;
 	}
 
+	if(!pGame->IsAnimationLoaded(szAnimLib))
+		pGame->RequestAnimation(szAnimLib);
+
+	// Applying it twice (the old code did, when the block was still loading)
+	// queued the same animation twice in the same frame.
 	ScriptCommand(&apply_animation, m_dwGTAId, szAnimName, szAnimLib, fT, opt1, opt2, opt3, opt4, iTime);
 }
 
