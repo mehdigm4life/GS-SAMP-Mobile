@@ -551,6 +551,9 @@ jobs:
           cat anim.md >> "$GITHUB_STEP_SUMMARY"
           exit $status
 
+      - name: Test SCM argument widths and bounds
+        run: python3 tests/test_script_marshalling.py
+
       - name: Test textdraw texture ownership and slot bounds
         run: python3 tests/test_textdraw_safety.py
 

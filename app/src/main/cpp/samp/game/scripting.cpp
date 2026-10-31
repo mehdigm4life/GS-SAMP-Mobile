@@ -3,7 +3,7 @@
 
 GAME_SCRIPT_THREAD* gst;
 char ScriptBuf[0xFF];
-uintptr_t *pdwParamVars[18];
+void* pdwParamVars[18];
 
 uint8_t ExecuteScriptBuf()
 {
@@ -15,7 +15,7 @@ uint8_t ExecuteScriptBuf()
 
 int ScriptCommand(const SCRIPT_COMMAND *pScriptCommand, ...)
 {
-    if (!pScriptCommand || !pScriptCommand->Params) {
+    if (!gst || !pScriptCommand) {
         //FLog("Error: Invalid ScriptCommand structure!");
         return 0;
     }
@@ -66,15 +66,19 @@ int ScriptCommand(const SCRIPT_COMMAND *pScriptCommand, ...)
                 break;
             }
             case 'v': {
-                if (var_pos >= sizeof(pdwParamVars) / sizeof(pdwParamVars[0])) {
+                if (var_pos >= sizeof(pdwParamVars) / sizeof(pdwParamVars[0]) ||
+                    buf_pos + 3 > sizeof(ScriptBuf)) {
                     //FLog("Error: Too many variables for ScriptCommand!");
                     va_end(ap);
                     return 0;
                 }
-                uintptr *v = va_arg(ap, uintptr*);
+                void* v = va_arg(ap, void*);
+                if (!v) { va_end(ap); return 0; }
                 ScriptBuf[buf_pos++] = 0x03;
                 pdwParamVars[var_pos] = v;
-                gst->dwLocalVar[var_pos] = *v;
+                // SCM variables remain 32-bit on arm64. The caller may supply a
+                // uint32_t or float; a pointer-sized load/store overruns it.
+                memcpy(&gst->dwLocalVar[var_pos], v, sizeof(int32_t));
                 memcpy(&ScriptBuf[buf_pos], &var_pos, 2);
                 buf_pos += 2;
                 var_pos++;
@@ -82,7 +86,8 @@ int ScriptCommand(const SCRIPT_COMMAND *pScriptCommand, ...)
             }
             case 's': {
                 char* sz = va_arg(ap, char*);
-                unsigned char aLen = strlen(sz);
+                if (!sz) { va_end(ap); return 0; }
+                const size_t aLen = strnlen(sz, sizeof(ScriptBuf));
                 if (buf_pos + aLen + 2 > sizeof(ScriptBuf)) {
                     //FLog("Error: Buffer overflow detected while processing 's'!");
                     va_end(ap);
@@ -118,7 +123,7 @@ int ScriptCommand(const SCRIPT_COMMAND *pScriptCommand, ...)
     int result = ExecuteScriptBuf();
     if (var_pos) {
         for (int i = 0; i < var_pos; i++) {
-            *pdwParamVars[i] = gst->dwLocalVar[i];
+            memcpy(pdwParamVars[i], &gst->dwLocalVar[i], sizeof(int32_t));
         }
     }
 
