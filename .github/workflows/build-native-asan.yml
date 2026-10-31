@@ -8,6 +8,8 @@ on:
       - 'app/src/asan/**'
       - 'app/src/main/cpp/samp/util/OverlapSafeStrncpy.h'
       - 'tests/test_capability_token.py'
+      - 'app/src/main/cpp/samp/game/StreamingReadBuffer.h'
+      - 'tests/test_streaming_read_buffer.py'
 permissions:
   contents: write
   actions: read
