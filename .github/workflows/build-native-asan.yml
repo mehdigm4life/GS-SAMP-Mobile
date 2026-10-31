@@ -10,6 +10,7 @@ on:
       - 'tests/test_capability_token.py'
 permissions:
   contents: write
+  actions: read
 jobs:
   diagnostic:
     runs-on: ubuntu-latest
@@ -50,9 +51,22 @@ jobs:
           test -n "$RUNTIME"
           mkdir -p app/build/generated/asan/jniLibs/arm64-v8a
           cp "$RUNTIME" app/build/generated/asan/jniLibs/arm64-v8a/
+      - name: Resolve ASan-3 using its exact instrumented symbols
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+        run: |
+          set -euo pipefail
+          gh run download 41202279522 -n asan-native-symbols-2cf2a4188ac76dca8f725fd4754c832d922b3c8c -D /tmp/asan3-symbols
+          SO=$(find /tmp/asan3-symbols -name libsamp-unstripped.so -print -quit)
+          TOOLS="$ANDROID_NDK_HOME/toolchains/llvm/prebuilt/linux-x86_64/bin"
+          "$TOOLS/llvm-readelf" -n "$SO" | grep 852bec8b3f652fda040b4d8ecafc0f986cbc6145
+          "$TOOLS/llvm-addr2line" -f -C -e "$SO" 0x285414 0x28574c 0x2862b8 0x289dac 0x35bb5c 0x27811c > asan3-symbolication.txt
+          while IFS= read -r line; do echo "::notice::$line"; done < asan3-symbolication.txt
       - name: Run native regression tests
         run: |
           python3 tests/test_capability_token.py
+          python3 tests/test_material_text_render.py
           python3 tests/test_map_icon_safety.py
           python3 tests/test_script_marshalling.py
           python3 tests/test_object_material_lifetime.py
@@ -110,6 +124,7 @@ jobs:
           name: asan-build-evidence
           path: |
             GS-SAMP-spawn-ASAN.apk
+            asan3-symbolication.txt
             asan-build.log
             analysis/*.txt
             analysis/*.sha256
