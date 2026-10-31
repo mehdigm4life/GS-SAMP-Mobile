@@ -50,6 +50,8 @@ CPlayerPed::CPlayerPed(int iNum, int iSkin, float fX, float fY, float fZ, float 
     static int iPlayerNum;
     iPlayerNum = iNum;
 
+    m_bytePlayerNumber = iNum;
+    m_dwParachuteObject = 0;
     m_pPed = nullptr;
     m_dwGTAId = 0;
     m_dwArrow = 0;
@@ -66,6 +68,7 @@ CPlayerPed::CPlayerPed(int iNum, int iSkin, float fX, float fY, float fZ, float 
     ((void (*)(int))(g_libGTASA + (VER_x32 ? 0x4C3AD4+1: 0x5C1140)))(iPlayerNum); // CPlayerPed::DeactivatePlayerPed
     //3AC5DC ; FindPlayerPed(int)
     m_pPed = FindPlayerPed(iNum); // CPlayerPed::FindPlayerPed
+    if (!m_pPed) return;
 
     CVector posn = {fX, fY, fZ};
     ((void (*)(const CVector&, CEntityGTA*))(g_libGTASA + (VER_x32 ? 0x34DA34+1: 0x419BE0)))(posn, m_pPed); // CTheScripts::ClearSpaceForMissionEntity
@@ -133,15 +136,17 @@ CPlayerPed::CPlayerPed(int iNum, int iSkin, float fX, float fY, float fZ, float 
 
 CPlayerPed::~CPlayerPed()
 {
-    auto modelId = m_pPed->m_nModelIndex;
+    int modelId = -1;
 	FLog("Destroying PlayerPed(%d)", m_bytePlayerNumber);
 
-	memset(&RemotePlayerKeys[m_bytePlayerNumber], 0, sizeof(PAD_KEYS));
-	// GameResetPlayerKeys
-	SetPlayerPedPtrRecord(m_bytePlayerNumber, 0);
+    if (m_bytePlayerNumber < PLAYER_PED_SLOTS) {
+        memset(&RemotePlayerKeys[m_bytePlayerNumber], 0, sizeof(PAD_KEYS));
+        SetPlayerPedPtrRecord(m_bytePlayerNumber, 0);
+    }
 
-	if (m_pPed && (GamePool_Ped_GetAt(m_dwGTAId) != 0) && IsValidGamePed(m_pPed) /* CPlaceable */)
+	if (m_pPed && (GamePool_Ped_GetAt(m_dwGTAId) == m_pPed) && IsValidGamePed(m_pPed) /* CPlaceable */)
 	{
+        modelId = m_pPed->m_nModelIndex;
 		if (m_dwParachuteObject)
 		{
 			ScriptCommand(&disassociate_object, m_dwParachuteObject, 0.0, 0.0, 0.0, 0);
@@ -158,7 +163,8 @@ CPlayerPed::~CPlayerPed()
 		}
 
 		uintptr_t dwPedPtr = (uintptr_t)m_pPed;
-        m_pPed->m_pPlayerData->m_nPlayerGroup = 0;
+        if (m_pPed->m_pPlayerData)
+            m_pPed->m_pPlayerData->m_nPlayerGroup = 0;
 		// CPlayerPed::Destructor
 		//((void (*)(CPedGTA*))(*(void**)(m_pPed->entity.vtable + 0x4)))(m_pPed);
 
@@ -174,7 +180,7 @@ CPlayerPed::~CPlayerPed()
 
 	}
 
-    CStreaming::RemoveModelIfNoRefs(modelId);
+    if (modelId >= 0) CStreaming::RemoveModelIfNoRefs(modelId);
 }
 
 

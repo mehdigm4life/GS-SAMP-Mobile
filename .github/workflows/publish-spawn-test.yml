@@ -1,0 +1,41 @@
+name: Publish requested spawn test APK
+on:
+  push:
+    branches: [arena/88ef5877-gs-samp-mobile]
+    paths: ['.github/workflows/publish-spawn-test.yml']
+permissions:
+  actions: read
+  contents: write
+jobs:
+  publish:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    env:
+      GH_TOKEN: ${{ github.token }}
+      GH_REPO: ${{ github.repository }}
+    steps:
+      - name: Retrieve the already tested APK without rebuilding
+        run: |
+          set -euo pipefail
+          test "$(gh run view 41204418442 --json conclusion --jq .conclusion)" = success
+          test "$(gh run view 41204418442 --json headSha --jq .headSha)" = e564952db58ad23963cafb90b06f04faee05a2b0
+          gh run download 41204418442 -n asan-build-evidence -D evidence
+          cd evidence
+          test -s GS-SAMP-spawn-ASAN.apk
+          sha256sum -c analysis/asan-apk.sha256
+          echo '::notice::Original successful build APK checksum verified; no rebuild or code changes.'
+      - name: Publish the test download requested by the user
+        run: |
+          if ! gh release create asan-spawn-6 evidence/GS-SAMP-spawn-ASAN.apk \
+            --target "$GITHUB_SHA" \
+            --prerelease --latest=false \
+            --title 'Spawn diagnostic 6 — player lifecycle repair' \
+            --notes 'Requested device-test APK from successful run 41204418442, unchanged and checksum-verified. Fixes the symbol-confirmed CGame::RemovePlayer heap-use-after-free, exhausted slots, failed creation and stale ped destruction. Includes 3000-cycle lifecycle regression and all previous fixes. ARM64 ASan diagnostic, NOT a verified spawn stability fix. Install over the existing app without deleting data. Reports: /storage/emulated/0/GS-SAMP/asan.txt and logcat.txt. Increased memory/CPU use.' >publish.log 2>&1; then
+            python3 - <<'PYERR'
+          from pathlib import Path
+          text = Path('publish.log').read_text()
+          print('::error::'+text.replace('%','%25').replace('\n','%0A').replace('\r','%0D'))
+          PYERR
+            exit 1
+          fi
+          cat publish.log
