@@ -13,6 +13,7 @@
 #include "Pickups.h"
 #include "game/Models/ModelInfo.h"
 #include "game/Collision/Collision.h"
+#include <dlfcn.h>
 
 void ApplySAMPPatchesInGame();
 void InitScripting();
@@ -435,13 +436,81 @@ uint32_t CGame::CreateRadarMarkerIcon(uint8_t byteType, float fPosX, float fPosY
     return dwMarkerID;
 }
 // 0.3.7
+// ---------------------------------------------------------------------------
+// Animation blocks
+//
+// IS_ANIMATION_LOADED is script command 0x04EE. The engine's handler resolves
+// the block name with CAnimManager::GetAnimationBlock() and then reads the
+// "loaded" byte at +0x10 of the result *without* checking that the lookup
+// succeeded:
+//
+//     0x41d8ac  bl  CAnimManager::GetAnimationBlock
+//     0x41d8b0  ldrb w1, [x0, #0x10]      <- x0 == 0 kills the process
+//
+// The block table comes from ANIMGRP.DAT, so any name this client does not
+// carry turns a harmless question into SIGSEGV at address 0x10. Servers that
+// preload their animations send every block name they know, and this build's
+// ANIMGRP.DAT has no ROB_FLEECA: that is the crash that ended every session
+// right after the player spawned.
+//
+// The lookup itself is exported by libGTASA, so it can be asked first and the
+// engine command is only reached for blocks that exist.
+typedef void* (*GetAnimationBlockFn)(const char*);
+
+static GetAnimationBlockFn ResolveGetAnimationBlock()
+{
+	static GetAnimationBlockFn fn = nullptr;
+	static bool resolved = false;
+
+	if (resolved)
+		return fn;
+	resolved = true;
+
+	// _ZN12CAnimManager17GetAnimationBlockEPKc is a GLOBAL DEFAULT symbol in
+	// libGTASA's .dynsym, so the linker hands it out directly. The offsets are
+	// the fallback for the case where dlsym() cannot see it (0x38DEA5 for arm is
+	// the Thumb entry point and already carries its low bit).
+	void* symbol = dlsym(RTLD_DEFAULT, "_ZN12CAnimManager17GetAnimationBlockEPKc");
+	if (symbol == nullptr)
+		symbol = (void*)(g_libGTASA + (VER_x32 ? 0x0038DEA5 : 0x4668F0));
+
+	fn = (GetAnimationBlockFn)symbol;
+	return fn;
+}
+
+bool CGame::HasAnimationBlock(const char* szAnimLib)
+{
+	if (szAnimLib == nullptr || szAnimLib[0] == '\0')
+		return false;
+
+	GetAnimationBlockFn fn = ResolveGetAnimationBlock();
+	if (fn == nullptr)
+	{
+		// Without the lookup there is no way to tell, and the old behaviour at
+		// least keeps animations working.
+		return true;
+	}
+
+	return fn(szAnimLib) != nullptr;
+}
+
 bool CGame::IsAnimationLoaded(const char* szAnimLib)
 {
+	// A block that does not exist is never loaded - and asking the engine would
+	// dereference a null block. This is the crash.
+	if (!HasAnimationBlock(szAnimLib))
+		return false;
+
 	return ScriptCommand(&is_animation_loaded, szAnimLib);
 }
 // 0.3.7
 void CGame::RequestAnimation(const char* szAnimLib)
 {
+	// Requesting a block that is not in ANIMGRP.DAT asks the streaming system for
+	// an id that does not exist.
+	if (!HasAnimationBlock(szAnimLib))
+		return;
+
 	ScriptCommand(&request_animation, szAnimLib);
 }
 // 0.3.7

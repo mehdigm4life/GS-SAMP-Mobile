@@ -66,6 +66,7 @@ public:
 	void LoadRequestedModels();
 	void RemoveModel(int iModel, bool bFromStreaming);
 
+	bool HasAnimationBlock(const char* szAnimLib);
 	bool IsAnimationLoaded(const char* szAnimLib);
 	void RequestAnimation(const char* szAnimLib);
 
