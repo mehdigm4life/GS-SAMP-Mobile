@@ -1,0 +1,115 @@
+name: Analyze reference APK (static only)
+on:
+  workflow_dispatch:
+  push:
+    branches: [arena/88ef5877-gs-samp-mobile]
+    paths:
+      - '.github/workflows/analyze-reference-apk.yml'
+      - 'tools/analyze_reference_apk.py'
+      - 'tools/reference_java_findings.py'
+      - 'tests/test_reference_apk.py'
+permissions:
+  contents: read
+concurrency:
+  group: reference-analysis-${{ github.ref }}
+  cancel-in-progress: true
+jobs:
+  inspect:
+    runs-on: ubuntu-latest
+    timeout-minutes: 40
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+      - name: Install pinned static-analysis tools
+        run: |
+          python3 -m venv /tmp/apk-analysis-env
+          /tmp/apk-analysis-env/bin/pip install pyelftools==0.32 capstone==5.0.6
+          mkdir -p analysis /tmp/jadx
+          curl --fail --location --proto '=https' --proto-redir '=https' --retry 2 \
+            --max-time 180 --max-filesize 150000000 \
+            https://github.com/skylot/jadx/releases/download/v1.5.3/jadx-1.5.3.zip -o /tmp/jadx.zip
+          sha256sum /tmp/jadx.zip > analysis/tool-download.sha256
+          unzip -q /tmp/jadx.zip -d /tmp/jadx
+          chmod +x /tmp/jadx/bin/jadx
+          /tmp/jadx/bin/jadx --version > analysis/jadx-version.txt
+      - name: Test archive inspection safeguards
+        run: /tmp/apk-analysis-env/bin/python tests/test_reference_apk.py
+      - name: Download user-supplied reference (no execution)
+        run: |
+          curl --fail --location --proto '=https' --proto-redir '=https' --retry 2 \
+            --connect-timeout 30 --max-time 600 --max-filesize 268435456 \
+            https://www.samp-mobile.shop/launcher.apk -o /tmp/reference.apk
+          sha256sum /tmp/reference.apk > analysis/reference.sha256
+          date -u +%FT%TZ > analysis/downloaded-at.txt
+      - name: Download own build-91 for exact libsamp comparison
+        run: |
+          curl --fail --location --proto '=https' --proto-redir '=https' --retry 2 \
+            --max-time 600 --max-filesize 268435456 \
+            https://github.com/mehdigm4life/GS-SAMP-Mobile/releases/download/build-91/app-debug.apk -o /tmp/project-build-91.apk
+          sha256sum /tmp/project-build-91.apk > analysis/project-build-91.sha256
+      - name: Inventory APK and compare both native ABIs
+        run: |
+          /tmp/apk-analysis-env/bin/python tools/analyze_reference_apk.py /tmp/reference.apk --out analysis --project-apk /tmp/project-build-91.apk
+          cat analysis/REPORT.md >> "$GITHUB_STEP_SUMMARY"
+          # Notices remain retrievable through the API even if artifact downloads fail.
+          python3 - <<'PY'
+          import json
+          r=json.load(open('analysis/inventory.json'))
+          print('::notice::APK SHA256 '+r['apk_sha256'])
+          summary=['Packaged native libraries: '+str(len(r['reference']))]
+          for c in r['comparisons']:
+              matching=c['focus_addresses_match']
+              summary.append(c['library']+' identical ELF='+str(c['identical_sha256'])+' identical .text='+str(c['identical_text'])+' focus addresses matching='+str(sum(matching.values()))+'/'+str(len(matching)))
+          for c in r['comparisons']:
+              if c['library'].endswith('libsamp.so'):
+                  names=[n for n in c['reference_only_exports'] if n.startswith('Java_')]
+                  summary.append(c['library']+' reference-only JNI exports: '+', '.join(names[:12]))
+          summary += ['ERROR: '+e for e in r['errors']]
+          print('::notice::'+('\n'.join(summary)).replace('%','%25').replace('\n','%0A').replace('\r','%0D'))
+          PY
+      - name: Decode manifest and inspect APK signature
+        run: |
+          AAPT=$(find "$ANDROID_HOME/build-tools" -name aapt -type f | sort -V | tail -1)
+          SIGNER=$(find "$ANDROID_HOME/build-tools" -name apksigner -type f | sort -V | tail -1)
+          "$AAPT" dump badging /tmp/reference.apk > analysis/apk-badging.txt
+          "$AAPT" dump xmltree /tmp/reference.apk AndroidManifest.xml > analysis/manifest-tree.txt
+          "$SIGNER" verify --verbose --print-certs /tmp/reference.apk > analysis/signature.txt
+          grep -E '^(package:|sdkVersion:|targetSdkVersion:|native-code:)' analysis/apk-badging.txt | while read -r line; do
+            echo "::notice::$line"
+          done
+      - name: Decompile Java and resources with JADX (bounded)
+        run: |
+          set +e
+          JAVA_OPTS='-Xmx4g' timeout 900 /tmp/jadx/bin/jadx -j 2 --show-bad-code \
+            -d analysis/jadx /tmp/reference.apk > analysis/jadx.log 2>&1
+          status=$?
+          set -e
+          echo "$status" > analysis/jadx-exit-code.txt
+          if [ "$status" != 0 ]; then
+            echo "::warning::JADX exit=$status; output is partial, inspect jadx.log. Not a successful complete decompilation."
+          fi
+          python3 tools/reference_java_findings.py
+          echo "JADX exit status: $status (0=success; nonzero=partial/failure)" >> "$GITHUB_STEP_SUMMARY"
+      - name: Upload analysis, not an installable APK
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: reference-static-analysis-${{ github.run_id }}
+          path: |
+            analysis/REPORT.md
+            analysis/*.json
+            analysis/*.txt
+            analysis/*.sha256
+            analysis/*.log
+            analysis/native/**/*.json
+            analysis/native/**/*.txt
+            analysis/project-native/**/*.json
+            analysis/project-native/**/*.txt
+            analysis/jadx/
+          retention-days: 7
+          if-no-files-found: warn

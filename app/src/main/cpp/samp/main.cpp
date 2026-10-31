@@ -936,6 +936,7 @@ extern "C" JNIEXPORT jint JNICALL JNI_OnLoad(JavaVM* vm, void* reserved)
 	//pthread_t thread;
 	//pthread_create(&thread, 0, Init, 0);
 
+#if !defined(GS_NATIVE_ASAN)
 	struct sigaction act;
 	act.sa_sigaction = handler;
 	sigemptyset(&act.sa_mask);
@@ -976,8 +977,13 @@ extern "C" JNIEXPORT jint JNICALL JNI_OnLoad(JavaVM* vm, void* reserved)
 	sigaction(SIGTERM, &act4, &act4_old);
 	sigaction(SIGQUIT, &act4, nullptr);
 
+#endif // ASan must retain its own signal handlers.
+
 	// Report where the previous run stopped before this one goes any further.
 	LogPreviousStage();
+#if defined(GS_NATIVE_ASAN)
+    FLog("ASAN diagnostic build active; reports: /storage/emulated/0/GS-SAMP/asan.txt");
+#endif
 	GameStage("libsamp loaded");
 
 	// Registered after the stage is known so a plain exit() names a stage too.
