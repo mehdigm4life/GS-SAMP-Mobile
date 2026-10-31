@@ -79,7 +79,20 @@ void Stream::Push(const VoicePacket& packet)
 
     if(channelPtr == nullptr)
     {
-        this->channels.emplace_back(MakeChannel(this->streamFlags));
+        /*
+            The Channel constructor throws when BASS or opus fails to create a
+            decoder. It is reached from the packet/downmix path where nothing
+            catches, so that exception used to end the process.
+        */
+        try
+        {
+            this->channels.emplace_back(MakeChannel(this->streamFlags));
+        }
+        catch (const std::exception&)
+        {
+            LogVoice("[sv:err:stream:push] : failed to create channel, packet dropped");
+            return;
+        }
 
         int channelCount = 1;
         for(const auto& channel : this->channels)

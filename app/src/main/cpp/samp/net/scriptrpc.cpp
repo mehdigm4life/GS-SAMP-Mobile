@@ -631,6 +631,14 @@ void ScrClearPlayerAnimations(RPCParameters* rpcParams)
 			}
 		}
 		if (pPlayerPed) {
+			/*
+				Clearing the animations used to only rewrite the ped's position,
+				so an animation the server had started kept playing after the
+				server asked for it to stop (a looping dance is a task that
+				never ends). Stop what is playing first, then keep the position.
+			*/
+			pPlayerPed->ClearAnimations();
+
             mat = pPlayerPed->m_pPed->GetMatrix().ToRwMatrix();
 			pPlayerPed->m_pPed->SetPosn(mat.pos.x, mat.pos.y, mat.pos.z);
 		}

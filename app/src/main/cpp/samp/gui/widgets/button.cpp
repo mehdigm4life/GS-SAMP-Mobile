@@ -68,8 +68,7 @@ void CButton::performLayout()
 
 void CButton::draw(ImGuiRenderer* renderer)
 {
-	if (OpenButton == false) return;
-
+	/* The bar is always shown (OpenButton starts true); "<<" only hides it. */
 	renderer->drawRect(absolutePosition(), absolutePosition() + size(),
 		focused() ? m_colorFocused : m_color, true);
 
@@ -113,12 +112,14 @@ void OButton::performLayout()
 
 void OButton::draw(ImGuiRenderer* renderer)
 {
+	/*
+		It used to move itself to (15,15) after every draw - which overwrote the
+		position the layout gave it - and to (-150,-150) while the bar was open.
+		The bar is open by default, so this control is only drawn as the "show
+		the bar again" button.
+	*/
 	if (OpenButton == true)
-	{
-		//Set >> to hide position
-		this->setPosition(ImVec2(-150.0f, -150.0f));
 		return;
-	}
 
 	renderer->drawRect(absolutePosition(), absolutePosition() + size(),
 		focused() ? m_colorFocused : m_color, true);
@@ -129,9 +130,6 @@ void OButton::draw(ImGuiRenderer* renderer)
 		ImColor(0x64, 0x95, 0xED)/*ImColor(0, 0, 0, 200)*/, false, UISettings::outlineSize());
 
 	Widget::draw(renderer);
-
-	//Set >> to position
-	this->setPosition(ImVec2(15.0f, 15.0f));
 }
 
 void OButton::touchPopEvent()

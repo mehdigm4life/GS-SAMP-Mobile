@@ -22,6 +22,11 @@ public:
 		const ImColor& col_bot_right, const ImColor& col_bot_left);
 	void drawTriangle(const ImVec2& a, const ImVec2& b, const ImVec2& c, const ImColor& color, bool fill = false, float thickness = 1.0f);
 	void drawConvexPolyFilled(ImVec2* points, int num_points	, const ImColor& color);
+	void drawRoundRectFilled(const ImVec2& a, const ImVec2& b, float rounding, const ImColor& color);
+	void drawRoundRect(const ImVec2& a, const ImVec2& b, float rounding, const ImColor& color, float thickness = 1.0f);
+	void drawCircleFilled(const ImVec2& center, float radius, const ImColor& color, int segments = 24);
+	/* The microphone icon is drawn with primitives - see MicGlyph.h. */
+	ImDrawList* drawList() { return m_drawList; }
 	void drawText(const ImVec2& pos, const ImColor& color, const std::string& text, bool outlined = false, float font_size = 0.0f);
 	void drawImage(const ImVec2& a, const ImVec2& b, ImTextureID texture);
 

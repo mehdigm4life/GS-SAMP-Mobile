@@ -10,7 +10,15 @@ extern CNetGame* pNetGame;
 extern CGame *pGame;
 
 bool bNeedEnterVehicle = false;
-bool OpenButton = false;
+/*
+    The action bar is visible from the first frame.
+
+    It used to start closed: every CButton returned immediately from draw(), so
+    the only thing on screen was the ">>" button and the controls the server
+    expects ("H", "F", "Y", "N", "G", ...) never appeared - the "widgets buttons
+    are not fully visible" report. The bar is always on screen now.
+*/
+bool OpenButton = true;
 int Tab = 0;
 ButtonPanel::ButtonPanel()
 	: Layout(Orientation::HORIZONTAL)
@@ -69,7 +77,17 @@ ButtonPanel::ButtonPanel()
 	m_bD->setCallback([]() { LocalPlayerKeys.bKeys[ePadKeys::KEY_SUBMISSION] = true; });
 	m_bUSE->setCallback([]() { LocalPlayerKeys.bKeys[ePadKeys::KEY_ANALOG_LEFT] = true; });
 	m_b2->setCallback([m_b2]() { if(m_b2->visible()) LocalPlayerKeys.bKeys[ePadKeys::KEY_SUBMISSION] = true; });
-	this->addChild(m_bClose);
+	/*
+		"<<" and ">>" used to toggle the bar, and the bar started closed - which
+		is why the controls the server expects were missing on screen. The bar is
+		always visible now, so the two toggles are gone instead of being a way to
+		lose the buttons again.
+	*/
+	delete m_bClose;
+	delete m_bOpen;
+	m_bClose = nullptr;
+	m_bOpen = nullptr;
+
 	this->addChild(m_bTab);
 	this->addChild(m_bEsc);
 	this->addChild(m_bAlt);
@@ -84,7 +102,6 @@ ButtonPanel::ButtonPanel()
 	//this->addChild(m_bFOOD);
 	//if (Server == 21) this->addChild(m_bGPS);
 	this->addChild(m_b2);
-	this->addChild(m_bOpen);
 
 
 	//m_bOpen->setPosition(ImVec2(5.0f, 140.0f));

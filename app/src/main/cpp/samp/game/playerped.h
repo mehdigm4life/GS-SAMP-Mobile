@@ -97,6 +97,7 @@ public:
 	void GetBonePosition(int iBoneID, CVector* vecOut);
 	void GetTransformedBonePosition(int iBoneID, CVector* vecOut);
 	void ApplyAnimation(const char* szAnimName, const char* szAnimLib, float fT, int opt1, int opt2, int opt3, int opt4, int iTime);
+	void ClearAnimations();
 	void SetInterior(uint8_t byteInteriorId, bool bRefresh);
 	void PutDirectlyInVehicle(uint32_t dwVehicleGTAId, uint8_t byteSeatID);
 	void EnterVehicle(uint32_t dwVehicleGtaId, bool bPassenger);

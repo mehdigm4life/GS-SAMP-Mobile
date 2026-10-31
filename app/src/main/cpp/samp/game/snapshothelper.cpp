@@ -224,7 +224,16 @@ RwTexture* CSnapShotHelper::CreateVehicleSnapShot(int iModel, uint32_t dwColor, 
     if (iModel == 570) iModel = 538;
     else if (iModel == 569) iModel = 537;
 
-    CVehicle* pVehicle = new CVehicle(iModel, 0.0f, 0.0f, 50.0f, 0.0f, false, false);
+    CVehicle* pVehicle = nullptr;
+    try
+    {
+        pVehicle = new CVehicle(iModel, 0.0f, 0.0f, 50.0f, 0.0f, false, false);
+    }
+    catch (const std::exception& exception)
+    {
+        FLog("snapshot: model %d could not be created: %s", iModel, exception.what());
+        return nullptr;
+    }
     if (!pVehicle || !pVehicle->m_pVehicle) {
         FLog("Failed to create vehicle");
         return nullptr;

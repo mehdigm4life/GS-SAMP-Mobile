@@ -503,7 +503,7 @@ jobs:
           }
 
           check app/src/main/cpp/samp/gui/samp_widgets/voicebutton.h "texture->raster != nullptr"
-          check app/src/main/cpp/samp/gui/samp_widgets/voicebutton.h "Button::draw(renderer)"
+          check app/src/main/cpp/samp/gui/samp_widgets/voicebutton.h "renderer->drawRoundRectFilled(pos, end, rounding, background);"
           check app/src/main/cpp/samp/gui/samp_widgets/voicebutton.h "LoadIcon"
           check app/src/main/cpp/samp/playertags.cpp "m_pMicroIconTexture->raster != nullptr"
           check app/src/main/cpp/samp/playertags.cpp "m_pAFKIconTexture->raster != nullptr"
@@ -549,6 +549,111 @@ jobs:
           echo '```' >> anim.md
           cat anim.md
           cat anim.md >> "$GITHUB_STEP_SUMMARY"
+          exit $status
+
+      - name: Verify animations, the TALK icon and the action bar
+        run: |
+          set -uo pipefail
+          status=0
+          {
+            echo '### animations, TALK icon and action bar'
+            echo '```'
+          } > ui.md
+
+          check() {
+            local file="$1" needle="$2" count
+            if [ ! -f "$file" ]; then
+              echo "missing file  $file" >> ui.md
+              status=1
+              return
+            fi
+            count=$(grep -c -F -- "$needle" "$file" || true)
+            echo "${count:-0}  $(basename "$file"): $needle" >> ui.md
+            if [ "${count:-0}" -lt 1 ]; then status=1; fi
+          }
+
+          reject() {
+            local file="$1" needle="$2" count
+            if [ ! -f "$file" ]; then
+              echo "missing file  $file" >> ui.md
+              status=1
+              return
+            fi
+            count=$(grep -c -F -- "$needle" "$file" || true)
+            echo "!${count:-0}  $(basename "$file") must not contain: $needle" >> ui.md
+            if [ "${count:-0}" -ne 0 ]; then status=1; fi
+          }
+
+          # animations: applied through CAnimManager, never against an unloaded block
+          check app/src/main/cpp/samp/game/AnimationSupport.cpp "BlendAnimationEP7RpClumpP19CAnimBlendHierarchyif"
+          check app/src/main/cpp/samp/game/AnimationSupport.cpp "ANIMATION_PARTIAL"
+          check app/src/main/cpp/samp/game/AnimationSupport.cpp "block->bLoaded"
+          check app/src/main/cpp/samp/game/AnimationSupport.cpp "getHierarchy(name, block)"
+          check app/src/main/cpp/samp/game/playerped.cpp "SAMPAnim::Apply(m_pPed"
+          check app/src/main/cpp/samp/game/playerped.cpp "SAMPAnim::IsPreloadName(szAnimName)"
+          check app/src/main/cpp/samp/game/game.cpp "SAMPAnim::ProcessPending();"
+          check app/src/main/cpp/samp/net/scriptrpc.cpp "pPlayerPed->ClearAnimations();"
+
+          # the microphone is drawn, not loaded
+          check app/src/main/cpp/samp/gui/MicGlyph.h "MicGlyph"
+          check app/src/main/cpp/samp/gui/samp_widgets/voicebutton.h "MicGlyph::Draw"
+          check app/src/main/cpp/samp/voice_new/Plugin.cpp "MicIconButton(\"talk\""
+          reject app/src/main/cpp/samp/voice_new/Plugin.cpp 'ImGui::Button("MIC"'
+
+          # the action bar is visible from the first frame
+          check app/src/main/cpp/samp/gui/samp_widgets/buttonpanel.cpp "bool OpenButton = true;"
+          reject app/src/main/cpp/samp/gui/widgets/button.cpp "if (OpenButton == false) return;"
+
+          # one uniform scale keeps every widget inside the screen
+          check app/src/main/cpp/samp/gui/uisettings.cpp "ImMin(size.x / m_baseSize.x, size.y / m_baseSize.y)"
+
+          echo '```' >> ui.md
+          cat ui.md
+          cat ui.md >> "$GITHUB_STEP_SUMMARY"
+          exit $status
+
+      - name: Verify no exception can abort the streaming path
+        run: |
+          set -uo pipefail
+          status=0
+          {
+            echo '### no aborts on the streaming path'
+            echo '```'
+          } > abort.md
+
+          reject() {
+            local file="$1" needle="$2" count
+            if [ ! -f "$file" ]; then
+              echo "missing file  $file" >> abort.md
+              status=1
+              return
+            fi
+            count=$(grep -c -F -- "$needle" "$file" || true)
+            echo "!${count:-0}  $(basename "$file") must not contain: $needle" >> abort.md
+            if [ "${count:-0}" -ne 0 ]; then status=1; fi
+          }
+
+          check() {
+            local file="$1" needle="$2" count
+            if [ ! -f "$file" ]; then
+              echo "missing file  $file" >> abort.md
+              status=1
+              return
+            fi
+            count=$(grep -c -F -- "$needle" "$file" || true)
+            echo "${count:-0}  $(basename "$file"): $needle" >> abort.md
+            if [ "${count:-0}" -lt 1 ]; then status=1; fi
+          }
+
+          reject app/src/main/cpp/samp/game/hooks.cpp "rled error"
+          check app/src/main/cpp/samp/game/hooks.cpp "memset(pDest, 0, (size_t)(pEndOfDest - pDest));"
+          reject app/src/main/cpp/samp/main.h "throw std::runtime_error( \"Error during formatting.\" )"
+          check app/src/main/cpp/samp/game/game.cpp "catch (const std::exception& exception)"
+          check app/src/main/cpp/samp/net/actorpool.cpp "catch (const std::exception& exception)"
+
+          echo '```' >> abort.md
+          cat abort.md
+          cat abort.md >> "$GITHUB_STEP_SUMMARY"
           exit $status
 
       - name: Verify the crash reporter and stage tracking are linked
