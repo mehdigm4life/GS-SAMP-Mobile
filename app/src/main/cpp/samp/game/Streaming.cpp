@@ -227,6 +227,11 @@ void CStreaming::InjectHooks() {
 
     CHook::Redirect("_ZN10CStreaming13InitImageListEv", &CStreaming::InitImageList);
     CHook::Redirect("_ZN10CStreaming12MakeSpaceForEi", &CStreaming::MakeSpaceFor);
+    // Route the engine's normal streaming scheduler through our checked reader.
+    // Without this redirect, the safeguards below only protect explicit
+    // TryLoadModel() calls; ordinary engine streaming can still pass corrupt
+    // IMG sector counts to CdStreamRead when spawning/loading a world.
+    CHook::Redirect("_ZN10CStreaming18RequestModelStreamEi", &CStreaming::RequestModelStream);
     //CHook::Redirect("_ZN10CStreaming22LoadAllRequestedModelsEb", &CStreaming::LoadAllRequestedModels);
 }
 
