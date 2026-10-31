@@ -30,6 +30,13 @@ CTextDrawPool::~CTextDrawPool()
 // 0.3.7
 void CTextDrawPool::New(uint16_t wTextDrawID, TEXT_DRAW_TRANSMIT* pTextDrawTransmit, const char* szText)
 {
+    /*
+        The id is a server value; GetAt() has always checked it, New() and
+        Delete() did not - m_pTextDraw[4000] is a write 7 kB past the pool.
+    */
+    if (wTextDrawID >= MAX_TEXT_DRAWS) return;
+    if (pTextDrawTransmit == nullptr) return;
+
     if (m_pTextDraw[wTextDrawID]) {
         Delete(wTextDrawID);
     }
@@ -43,6 +50,8 @@ void CTextDrawPool::New(uint16_t wTextDrawID, TEXT_DRAW_TRANSMIT* pTextDrawTrans
 // 0.3.7
 void CTextDrawPool::Delete(uint16_t wTextDrawID)
 {
+    if (wTextDrawID >= MAX_TEXT_DRAWS) return;
+
     if (m_pTextDraw[wTextDrawID]) {
         delete m_pTextDraw[wTextDrawID];
         m_pTextDraw[wTextDrawID] = nullptr;
