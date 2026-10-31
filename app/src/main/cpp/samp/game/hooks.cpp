@@ -168,10 +168,11 @@ void Render2dStuff()
 
     ((void (*)(bool)) (g_libGTASA + (VER_x32 ? 0x0054BDD4 + 1 : 0x66B678)))(1u); // CMessages::Display - gametext
     ((void (*)(bool)) (g_libGTASA + (VER_x32 ? 0x005A9120 + 1 : 0x6CCEA0)))(1u); // CFont::RenderFontBuffer
+    // Gamma correction here is for GTA's own font pass only. The custom UI
+    // carries server-defined per-span colors; applying the global gamma flag
+    // to that renderer distorts those colors, so restore the original state first.
+    CHook::CallFunction<void>("_Z12emu_GammaSeth", 0);
 
-    // The chat and 3D world labels are rendered by the custom UI after GTA's
-    // native font buffer. Keep the same gamma-correction flag enabled for those
-    // overlays too; resetting it here made every custom message look washed out.
     if(pNetGame)
     {
         CTextDrawPool* pTextDrawPool = pNetGame->GetTextDrawPool();
@@ -179,7 +180,6 @@ void Render2dStuff()
     }
 
     if (pUI) pUI->render();
-    CHook::CallFunction<void>("_Z12emu_GammaSeth", 0);
 }
 
 /* =============================================================================== */
