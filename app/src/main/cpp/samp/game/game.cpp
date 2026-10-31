@@ -383,13 +383,15 @@ CObject* CGame::NewObject(int iModel, CVector vecPos, CVector vecRot, float fDra
 // 0.3.7 (�� ����������� ������ bIsNPC)
 CPlayerPed* CGame::NewPlayer(int iSkin, float fX, float fY, float fZ, float fRotation, bool unk, bool bIsNPC)
 {
-	uint8_t bytePedSlot = FindFirstFreePlayerPedSlot();
-	if (!bytePedSlot) return nullptr;
-	auto pPed = new CPlayerPed(bytePedSlot, iSkin, fX, fY, fZ, fRotation);
-	if (pPed && pPed->m_pPed) {
-		bUsedPlayerSlots[bytePedSlot] = true;
-	}
-
+    // Keep the signed sentinel: casting -1 to uint8_t produced slot 255.
+    const int slot = FindFirstFreePlayerPedSlot();
+    if (slot < 2 || slot >= PLAYER_PED_SLOTS) return nullptr;
+    auto* pPed = new CPlayerPed(slot, iSkin, fX, fY, fZ, fRotation);
+    if (!pPed->m_pPed) {
+        delete pPed;
+        return nullptr;
+    }
+    bUsedPlayerSlots[slot] = true;
     return pPed;
 }
 // 0.3.7
@@ -397,8 +399,11 @@ bool CGame::RemovePlayer(CPlayerPed* pPed)
 {
 	if (!pPed) return false;
 
-	delete pPed;
-	bUsedPlayerSlots[pPed->m_bytePlayerNumber] = false;
+    // Cache metadata BEFORE destruction. The previous read used freed memory.
+    const auto slot = pPed->m_bytePlayerNumber;
+    delete pPed;
+    if (slot >= 2 && slot < PLAYER_PED_SLOTS)
+        bUsedPlayerSlots[slot] = false;
 	return true;
 }
 // 0.3.7
