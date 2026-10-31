@@ -15,9 +15,9 @@
         name this build does not carry is skipped instead of leaving a task that
         never finishes (a ped with such a task stands frozen forever - the
         "character does not move" report);
-      * play it with CAnimManager::BlendAnimation(), the same call the engine's
-        own CTaskSimpleRunAnim uses, computing the flags exactly like
-        CRunningScript::PlayAnimScriptCommand (script opcode 0x0812) does;
+      * dispatch a verified animation through the game's own ApplyAnimation
+        script opcode (0x0812), so the engine creates and owns its normal ped
+        animation task;
       * defer a request for a block that is still streaming instead of applying
         it against data that is not there yet.
 */
@@ -46,7 +46,7 @@ namespace SAMPAnim
         applied; the caller can then decide to fall back to the script command.
         [opt1..opt4] are loop / lockX / lockY / freeze, [time] the duration.
     */
-    bool Apply(CPedGTA* ped, const char* lib, const char* name, float delta,
+    bool Apply(int pedId, CPedGTA* ped, const char* lib, const char* name, float delta,
         int opt1, int opt2, int opt3, int opt4, int time);
 
     /* remembers a request for a block that is still loading (bounded, safe) */

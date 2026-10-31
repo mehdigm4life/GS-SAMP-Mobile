@@ -3,6 +3,7 @@
 //
 
 #include "Streaming.h"
+#include "StreamingReadBuffer.h"
 #include "../vendor/armhook/patch.h"
 #include "StreamingInfo.h"
 #include "game/Models/ModelInfo.h"
@@ -544,6 +545,20 @@ int32 CStreaming::GetNextFileOnCd(uint32 streamLastPosn, bool bNotPriority) {
         if (bNotPriority && ms_numPriorityRequests != 0 && !info->IsPriorityRequest())
             continue;
 
+        // GetCdPosn() indexes ms_files by m_nImgId. Validate both that index
+        // and the on-disk 16-bit sector length before using either. A corrupt
+        // entry here previously yielded multi-billion-sector CdStream requests.
+        const uint32 imgId = info->m_nImgId;
+        const uint32 sectors = info->GetCdSize();
+        if (imgId >= TOTAL_IMG_ARCHIVES || !ms_files[imgId].IsInUse() || sectors == 0 ||
+            !StreamingReadBuffer::IsPlausibleImgSectorCount(sectors)) {
+            FLog("Invalid queued IMG metadata removed: model=%d image=%u pos=%u sectors=%u flags=%u",
+                 modelId, imgId, unsigned(info->m_nCdPosn), sectors, unsigned(info->GetFlags()));
+            RemoveModel(modelId);
+            info->ClearAllFlags();
+            return MODEL_INVALID;
+        }
+
         // Additional conditions for some model types (DFF, TXD, IFP)
         switch (GetModelType(modelId)) {
             case eModelType::DFF: {
@@ -621,6 +636,7 @@ void CStreaming::RequestModelStream(int32 chIdx) {
     tStreamingChannel& ch = ms_channel[chIdx];
     size_t posn = 0;
     size_t nThisModelSizeInSectors = 0;
+    uint8_t originalFlags[16]{};
     CStreamingInfo* streamingInfo = &GetInfo(modelId);
 
     // Find first model that has to be loaded
@@ -644,8 +660,22 @@ void CStreaming::RequestModelStream(int32 chIdx) {
         streamingInfo = &GetInfo(modelId); // Grab next file's info
     }
 
-    // Grab cd pos and size for this model
+    // Grab cd pos and size for this model.
     streamingInfo->GetCdPosnAndSize(posn, nThisModelSizeInSectors);
+
+    // IMG entries store sector lengths in 16 bits. The device log showed
+    // counts in the hundreds of millions; forwarding one to CdStream can
+    // overflow its byte-count shift and wedge the channel. Reject a bad entry
+    // while it is still on the request list, and let other streams proceed.
+    if (nThisModelSizeInSectors == 0 ||
+        !StreamingReadBuffer::IsPlausibleImgSectorCount(nThisModelSizeInSectors)) {
+        FLog("Invalid IMG entry skipped before streaming: model=%d image=%u pos=%u sectors=%llu flags=%u",
+             modelId, unsigned(streamingInfo->m_nImgId), unsigned(streamingInfo->m_nCdPosn),
+             static_cast<unsigned long long>(nThisModelSizeInSectors), unsigned(streamingInfo->GetFlags()));
+        RemoveModel(modelId);
+        streamingInfo->ClearAllFlags();
+        return;
+    }
 
     // Check if it's big 0x40CCD5
     if (nThisModelSizeInSectors > ms_streamingBufferSize) {
@@ -675,6 +705,16 @@ void CStreaming::RequestModelStream(int32 chIdx) {
 
         if (streamingInfo->GetCdSize())
             nThisModelSizeInSectors = streamingInfo->GetCdSize();
+
+        if (nThisModelSizeInSectors == 0 ||
+            !StreamingReadBuffer::IsPlausibleImgSectorCount(nThisModelSizeInSectors)) {
+            FLog("Invalid IMG entry skipped before batch read: model=%d image=%u pos=%u sectors=%llu flags=%u",
+                 modelId, unsigned(streamingInfo->m_nImgId), unsigned(streamingInfo->m_nCdPosn),
+                 static_cast<unsigned long long>(nThisModelSizeInSectors), unsigned(streamingInfo->GetFlags()));
+            RemoveModel(modelId);
+            streamingInfo->ClearAllFlags();
+            break;
+        }
 
         const bool isThisModelLargeish = nThisModelSizeInSectors > 200;
 
@@ -744,6 +784,9 @@ void CStreaming::RequestModelStream(int32 chIdx) {
                 isPreviousLargeishBigOrVeh = true;
         }
 
+        // Save flags so a transient CdStream refusal can safely requeue this batch.
+        originalFlags[i] = streamingInfo->GetFlags();
+
         // Modify the state of models
         {
             streamingInfo->m_nLoadState = LOADSTATE_READING; // Set as being read
@@ -763,7 +806,33 @@ void CStreaming::RequestModelStream(int32 chIdx) {
         ch.modelIds[j] = MODEL_INVALID;
     }
 
-    CdStreamRead(chIdx, ms_pStreamingBuffer[chIdx], posn, nSectorsToRead); // Request models to be read
+    if (nSectorsToRead == 0)
+        return;
+
+    if (!CdStreamRead(chIdx, ms_pStreamingBuffer[chIdx], posn, nSectorsToRead)) {
+        // CdStreamRead may refuse a request (e.g. temporary channel contention
+        // or memory pressure). Restore every selected model to the request list
+        // instead of marking a read that the worker will never complete.
+        const bool retryBatch = ++ch.totalTries <= 2;
+        FLog("CdStream refused batch: channel=%d pos=%u sectors=%u models=%d retry=%d attempt=%d",
+             chIdx, unsigned(posn), nSectorsToRead, i, retryBatch, ch.totalTries);
+        for (uint32 j = 0; j < i; ++j) {
+            const int32 failedModel = ch.modelIds[j];
+            if (failedModel == MODEL_INVALID) continue;
+            auto& failedInfo = GetInfo(failedModel);
+            failedInfo.m_nLoadState = LOADSTATE_NOT_LOADED;
+            failedInfo.ClearAllFlags();
+            if (retryBatch)
+                RequestModel(failedModel, originalFlags[j]);
+            ch.modelIds[j] = MODEL_INVALID;
+        }
+        ch.LoadStatus = eChannelState::IDLE;
+        ch.sectorCount = 0;
+        ch.iLoadingLevel = 0;
+        ms_bLoadingBigModel = false;
+        if (!retryBatch) ch.totalTries = 0;
+        return;
+    }
     ch.LoadStatus = eChannelState::READING;
     ch.iLoadingLevel = 0;
     ch.sectorCount = nSectorsToRead; // Set how many sectors to read
