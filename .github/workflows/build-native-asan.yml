@@ -6,6 +6,8 @@ on:
     paths:
       - '.github/workflows/build-native-asan.yml'
       - 'app/src/asan/**'
+      - 'app/src/main/cpp/samp/util/OverlapSafeStrncpy.h'
+      - 'tests/test_capability_token.py'
 permissions:
   contents: write
 jobs:
@@ -50,6 +52,7 @@ jobs:
           cp "$RUNTIME" app/build/generated/asan/jniLibs/arm64-v8a/
       - name: Run native regression tests
         run: |
+          python3 tests/test_capability_token.py
           python3 tests/test_map_icon_safety.py
           python3 tests/test_script_marshalling.py
           python3 tests/test_object_material_lifetime.py
