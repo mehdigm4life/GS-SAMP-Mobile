@@ -13,7 +13,7 @@ MAX_TOTAL = 1024 * 1024 * 1024
 FOCUS = ('RLEDecompress', 'CEntity6Render', 'RenderOneNonRoad', 'RpMaterialSetTexture',
          'RwFrameGetLTM', 'RwFrameUpdateObjects', 'GetAnimationBlock', 'BlendAnimation',
          'OS_FileRead', 'OS_FileSetPosition', 'ReadExisting', 'ProcessCommands',
-         'AssignShader', 'C3dMarkers', 'JNI_OnLoad')
+         'AssignShader', 'C3dMarkers', 'JNI_OnLoad', 'setGpuTextureFormat')
 
 
 def sha(path):
@@ -48,6 +48,8 @@ def elf_info(path, output):
     with path.open('rb') as f:
         elf = ELFFile(f)
         result.update(bits=elf.elfclass, machine=elf['e_machine'], endian='little' if elf.little_endian else 'big')
+        text = elf.get_section_by_name('.text')
+        result['text_sha256'] = hashlib.sha256(text.data()).hexdigest() if text else None
         result['segments'] = [{k: s[k] for k in ('p_type', 'p_vaddr', 'p_offset', 'p_filesz', 'p_memsz', 'p_flags')}
                               for s in elf.iter_segments()]
         dynamic = elf.get_section_by_name('.dynamic')
@@ -128,6 +130,8 @@ def analyze(apk, project, out):
         if not local: continue
         report['comparisons'].append({'library': key, 'identical_sha256': ref['sha256'] == local['sha256'],
                                       'same_machine': ref['machine'] == local['machine'],
+                                      'identical_text': bool(ref['text_sha256']) and ref['text_sha256'] == local['text_sha256'],
+                                      'focus_addresses_match': {x['name']: x['address'] == y['address'] for x in ref['focus_symbols'] for y in local['focus_symbols'] if x['name'] == y['name']},
                                       'reference_only_exports': sorted(set(ref['exports']) - set(local['exports'])),
                                       'project_only_exports': sorted(set(local['exports']) - set(ref['exports']))})
     (out / 'inventory.json').write_text(json.dumps(report, indent=2))

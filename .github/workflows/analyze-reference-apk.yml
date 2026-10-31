@@ -55,8 +55,12 @@ jobs:
           import json
           r=json.load(open('analysis/inventory.json'))
           print('::notice::APK SHA256 '+r['apk_sha256'])
-          summary=open('analysis/REPORT.md').read()
-          print('::notice::'+summary.replace('%','%25').replace('\n','%0A').replace('\r','%0D'))
+          summary=['Packaged native libraries: '+str(len(r['reference']))]
+          for c in r['comparisons']:
+              matching=c['focus_addresses_match']
+              summary.append(c['library']+' identical ELF='+str(c['identical_sha256'])+' identical .text='+str(c['identical_text'])+' focus addresses matching='+str(sum(matching.values()))+'/'+str(len(matching)))
+          summary += ['ERROR: '+e for e in r['errors']]
+          print('::notice::'+('\n'.join(summary)).replace('%','%25').replace('\n','%0A').replace('\r','%0D'))
           PY
       - name: Decode manifest and inspect APK signature
         run: |

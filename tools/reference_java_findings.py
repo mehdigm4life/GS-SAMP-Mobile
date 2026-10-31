@@ -5,7 +5,7 @@ root = Path('analysis/jadx/sources')
 patterns = re.compile(r'System\.load|loadLibrary|native\s+\w|https?://|\.so\b|\.apk\b|files\.json', re.I)
 lines = ['# Decompiled loader/JNI index', '', 'Review candidates, not proven execution paths. URLs below omit queries/fragments.', '']
 count = 0
-for file in sorted(root.rglob('*.java')):
+for file in sorted(root.rglob('*.java'), key=lambda p: (not str(p.relative_to(root)).startswith('com/samp/'), str(p))):
     for number, line in enumerate(file.read_text(errors='replace').splitlines(), 1):
         if patterns.search(line):
             # Keep artifact output bounded and avoid propagating URL credentials/tokens.
@@ -24,7 +24,9 @@ for line in lines:
         selected.append(line)
         if len(selected) == 100: break
 excerpt = '\n'.join(selected) or 'No matching loader evidence in the bounded index; inspect artifacts.'
-print('::notice::'+('Loader/JNI excerpt (partial):\n'+excerpt).replace('%','%25').replace('\n','%0A').replace('\r','%0D'))
+for start in range(0, min(len(excerpt), 12000), 3000):
+    part = 'Loader/JNI excerpt (partial):\n' + excerpt[start:start+3000]
+    print('::notice::'+part.replace('%','%25').replace('\n','%0A').replace('\r','%0D'))
 log = Path('analysis/jadx.log')
 if log.exists():
     tail = '\n'.join(log.read_text(errors='replace').splitlines()[-25:])
