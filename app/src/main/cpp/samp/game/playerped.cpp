@@ -794,9 +794,9 @@ void CPlayerPed::ApplyAnimation(const char* szAnimName, const char* szAnimLib, f
 	if(!strcasecmp(szAnimLib,"SEX")) return;
 	if(!strcasecmp(szAnimLib,"SAMP")) return;
 
-	// A block this client's ANIMGRP.DAT does not carry can never be loaded, and
-	// the engine's own "is it loaded" path dies on it (see CGame::HasAnimationBlock).
-	// Servers preloading every block they know hit that every session.
+	// A block absent from this client's registered IFP set can never be loaded,
+	// and the engine's own "is it loaded" path dereferences a missing block.
+	// Resolve block names case-insensitively before any script query.
 	if (!pGame->HasAnimationBlock(szAnimLib))
 	{
 		if (SAMPAnim::ShouldLogMissingBlock(szAnimLib))

@@ -15,6 +15,9 @@
 #include "game/Collision/Collision.h"
 #include <dlfcn.h>
 #include "AnimationSupport.h"
+#include "Animation/AnimBlock.h"
+#include "Animation/AnimManager.h"
+#include <strings.h>
 
 void ApplySAMPPatchesInGame();
 void InitScripting();
@@ -453,14 +456,15 @@ uint32_t CGame::CreateRadarMarkerIcon(uint8_t byteType, float fPosX, float fPosY
 //     0x41d8ac  bl  CAnimManager::GetAnimationBlock
 //     0x41d8b0  ldrb w1, [x0, #0x10]      <- x0 == 0 kills the process
 //
-// The block table comes from ANIMGRP.DAT, so any name this client does not
-// carry turns a harmless question into SIGSEGV at address 0x10. Servers that
-// preload their animations send every block name they know, and this build's
-// ANIMGRP.DAT has no ROB_FLEECA: that is the crash that ended every session
-// right after the player spawned.
+// Animation block names are registered as IFP files are loaded; data/ANIMGRP.DAT
+// primarily defines association groups (for example the lower-case "ped"
+// walkcycle block), not a complete list of RPC library spellings. The lookup is
+// case-sensitive, so a server's "PED" must resolve to the registered "ped"
+// before any script opcode is called. Unknown names still make the engine's
+// IS_ANIMATION_LOADED opcode dereference null at address 0x10.
 //
-// The lookup itself is exported by libGTASA, so it can be asked first and the
-// engine command is only reached for blocks that exist.
+// Resolve the block using the exported libGTASA lookup first, then pass its
+// canonical stored spelling to every engine script command.
 typedef void* (*GetAnimationBlockFn)(const char*);
 
 static GetAnimationBlockFn ResolveGetAnimationBlock()
@@ -484,40 +488,101 @@ static GetAnimationBlockFn ResolveGetAnimationBlock()
 	return fn;
 }
 
-bool CGame::HasAnimationBlock(const char* szAnimLib)
+bool CGame::ResolveAnimationBlockName(const char* requestedName, char* canonicalName, size_t canonicalNameSize)
 {
-	if (szAnimLib == nullptr || szAnimLib[0] == '\0')
+	if (canonicalName == nullptr || canonicalNameSize == 0)
 		return false;
+	canonicalName[0] = '\0';
+
+	if (requestedName == nullptr || requestedName[0] == '\0')
+		return false;
+
+	// CAnimBlock::szName is 16 bytes and GetAnimationBlock() compares names
+	// with strcmp. Reject names that cannot possibly fit rather than truncating
+	// them into a different block.
+	char query[sizeof(CAnimBlock::szName)]{};
+	size_t length = 0;
+	while (length < sizeof(query) && requestedName[length] != '\0')
+		++length;
+	if (length == 0 || length >= sizeof(query))
+		return false;
+	memcpy(query, requestedName, length + 1);
 
 	GetAnimationBlockFn fn = ResolveGetAnimationBlock();
 	if (fn == nullptr)
-	{
-		// Without the lookup there is no way to tell, and the old behaviour at
-		// least keeps animations working.
-		return true;
-	}
+		return false;
 
-	return fn(szAnimLib) != nullptr;
+	CAnimBlock* block = fn(query);
+	if (block == nullptr)
+	{
+		// The stock game stores names such as "ped" while SA-MP commonly sends
+		// "PED". GetAnimationBlock is case-sensitive, so retry normalized ASCII
+		// spellings and retain the exact spelling held by the registered block.
+		for (size_t i = 0; i < length; ++i)
+			query[i] = (query[i] >= 'A' && query[i] <= 'Z')
+				? static_cast<char>(query[i] - 'A' + 'a') : query[i];
+		block = fn(query);
+	}
+	if (block == nullptr)
+	{
+		for (size_t i = 0; i < length; ++i)
+			query[i] = (query[i] >= 'a' && query[i] <= 'z')
+				? static_cast<char>(query[i] - 'a' + 'A') : query[i];
+		block = fn(query);
+	}
+	if (block == nullptr)
+	{
+		// Some content uses mixed case (unlike the usual all-lower/all-upper
+		// variants). Scan the hooked engine table once to resolve any ASCII case
+		// variant without changing the spelling stored in CAnimBlock.
+		int32 blockCount = CAnimManager::ms_numAnimBlocks;
+		if (blockCount < 0) blockCount = 0;
+		if (blockCount > NUM_ANIM_BLOCKS) blockCount = NUM_ANIM_BLOCKS;
+		for (int32 i = 0; i < blockCount; ++i)
+		{
+			CAnimBlock* candidate = &CAnimManager::ms_aAnimBlocks[i];
+			if (strncasecmp(candidate->szName, requestedName, sizeof(candidate->szName)) == 0)
+			{
+				block = candidate;
+				break;
+			}
+		}
+	}
+	if (block == nullptr)
+		return false;
+
+	length = 0;
+	while (length < sizeof(block->szName) && block->szName[length] != '\0')
+		++length;
+	if (length == 0 || length >= canonicalNameSize)
+		return false;
+	memcpy(canonicalName, block->szName, length);
+	canonicalName[length] = '\0';
+	return true;
+}
+
+bool CGame::HasAnimationBlock(const char* szAnimLib)
+{
+	char canonicalName[sizeof(CAnimBlock::szName)]{};
+	return ResolveAnimationBlockName(szAnimLib, canonicalName, sizeof(canonicalName));
 }
 
 bool CGame::IsAnimationLoaded(const char* szAnimLib)
 {
-	// A block that does not exist is never loaded - and asking the engine would
-	// dereference a null block. This is the crash.
-	if (!HasAnimationBlock(szAnimLib))
+	char canonicalName[sizeof(CAnimBlock::szName)]{};
+	if (!ResolveAnimationBlockName(szAnimLib, canonicalName, sizeof(canonicalName)))
 		return false;
 
-	return ScriptCommand(&is_animation_loaded, szAnimLib);
+	return ScriptCommand(&is_animation_loaded, canonicalName);
 }
 // 0.3.7
 void CGame::RequestAnimation(const char* szAnimLib)
 {
-	// Requesting a block that is not in ANIMGRP.DAT asks the streaming system for
-	// an id that does not exist.
-	if (!HasAnimationBlock(szAnimLib))
+	char canonicalName[sizeof(CAnimBlock::szName)]{};
+	if (!ResolveAnimationBlockName(szAnimLib, canonicalName, sizeof(canonicalName)))
 		return;
 
-	ScriptCommand(&request_animation, szAnimLib);
+	ScriptCommand(&request_animation, canonicalName);
 }
 // 0.3.7
 float CGame::FindGroundZForCoord(float fX, float fY, float fZ)
