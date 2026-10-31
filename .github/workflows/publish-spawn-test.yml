@@ -26,8 +26,16 @@ jobs:
           echo '::notice::Original successful build APK checksum verified; no rebuild or code changes.'
       - name: Publish the test download requested by the user
         run: |
-          gh release create asan-spawn-5 evidence/GS-SAMP-spawn-ASAN.apk \
+          if ! gh release create asan-spawn-5 evidence/GS-SAMP-spawn-ASAN.apk \
             --target a011b35b979de7fcbbe8a1669a1afa46030f9cf4 \
             --prerelease --latest=false \
             --title 'Spawn diagnostic 5 — material-text lifetime repair' \
-            --notes 'Requested device-test APK from successful run 41203282974, unchanged and checksum-verified. Fixes reproduced material-text stack-use-after-scope and validates size/alignment; retains all 12 capability-copy fixes. ARM64 ASan diagnostic, NOT a verified spawn stability fix. Install over the existing app without deleting data. Reports: /storage/emulated/0/GS-SAMP/asan.txt and logcat.txt. Increased memory/CPU use.'
+            --notes 'Requested device-test APK from successful run 41203282974, unchanged and checksum-verified. Fixes reproduced material-text stack-use-after-scope and validates size/alignment; retains all 12 capability-copy fixes. ARM64 ASan diagnostic, NOT a verified spawn stability fix. Install over the existing app without deleting data. Reports: /storage/emulated/0/GS-SAMP/asan.txt and logcat.txt. Increased memory/CPU use.' >publish.log 2>&1; then
+            python3 - <<'PYERR'
+          from pathlib import Path
+          text = Path('publish.log').read_text()
+          print('::error::'+text.replace('%','%25').replace('\n','%0A').replace('\r','%0D'))
+          PYERR
+            exit 1
+          fi
+          cat publish.log
