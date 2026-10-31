@@ -1,6 +1,7 @@
 #include <GLES2/gl2.h>
 #include <EGL/egl.h>
 #include "../main.h"
+#include "util/OverlapSafeStrncpy.h"
 #include "../vendor/armhook/patch.h"
 #include "game.h"
 #include "../net/netgame.h"
@@ -22,6 +23,7 @@
 #include "Coronas.h"
 #include "multitouch.h"
 #include "Streaming.h"
+#include "StreamingReadBuffer.h"
 #include "References.h"
 #include "VisibilityPlugins.h"
 #include "game/Animation/AnimManager.h"
@@ -1793,6 +1795,42 @@ float CDraw__SetFOV_hook(float thiz, float a2)
     return thiz;
 }
 
+static bool (*EngineCdStreamRead)(int32, void*, uint32, uint32);
+static bool CdStreamReadCapacity_hook(int32 channel, void* buffer, uint32 offset, uint32 sectors)
+{
+    // Only engine-owned streaming buffers: leave other users of CdStream alone.
+    if (channel < 0 || channel > 1 || buffer != CStreaming::ms_pStreamingBuffer[channel])
+        return EngineCdStreamRead(channel, buffer, offset, sectors);
+
+    auto& first = CStreaming::ms_pStreamingBuffer[0];
+    auto& second = CStreaming::ms_pStreamingBuffer[1];
+    auto& half = CStreaming::ms_streamingBufferSize;
+    const uint64_t available = half > 0 ? uint64_t(half) * (channel == 0 ? 2 : 1) : 0;
+    if (!sectors) return EngineCdStreamRead(channel, buffer, offset, sectors);
+    auto result = StreamingReadBuffer::Ensure(first, second, half, channel, sectors, false);
+    if (result == StreamingReadBuffer::Result::Fits)
+        return EngineCdStreamRead(channel, buffer, offset, sectors);
+
+    const bool safe = (CStreaming::ms_channel[0].IsIdle() ||
+                      CStreaming::ms_channel[0].LoadStatus == eChannelState::ERR) &&
+                      CStreaming::ms_channel[1].IsIdle();
+    // Synchronize the worker before releasing its allocation; do not grow a
+    // channel that has completed-but-unconsumed model data either.
+    if (safe && result == StreamingReadBuffer::Result::Busy && channel == 0) {
+        CdStreamSync(0); CdStreamSync(1);
+        result = StreamingReadBuffer::Ensure(first, second, half, channel, sectors, true);
+    }
+    if (result != StreamingReadBuffer::Result::Grew && result != StreamingReadBuffer::Result::Fits) {
+        FLog("Streaming read rejected: channel=%d offset=%u sectors=%u capacity=%llu result=%d",
+             channel, offset, sectors, static_cast<unsigned long long>(available), int(result));
+        return false; // never submit an out-of-bounds write
+    }
+    FLog("Streaming buffer resized: channel=%d offset=%u request=%u oldCapacity=%llu newTotal=%u model=%d",
+         channel, offset, sectors, static_cast<unsigned long long>(available), unsigned(half)*2,
+         CStreaming::ms_channel[channel].modelIds[0]);
+    return EngineCdStreamRead(channel, CStreaming::ms_pStreamingBuffer[channel], offset, sectors);
+}
+
 void(*CStreaming__Init2)();
 void CStreaming__Init2_hook()
 {
@@ -1810,9 +1848,50 @@ int mpg123_param_hook(void* mh, int key, long val, int ZERO, double fval)
     return mpg123_param(mh, key, val | (0x2000 | 0x200 | 0x100 | 0x40), ZERO, fval);
 }
 
+#if defined(GS_NATIVE_ASAN) && defined(__aarch64__)
+// The shipped engine calls strncpy while trimming a token in place in
+// nvGetSystemCapabilities (all twelve copy sites audited, not just one).
+// ASan correctly rejects that overlap before startup reaches the game.
+// Keep every other call on the original intercepted libc path.
+static char* (*EngineStrncpy)(char*, const char*, size_t);
+static char* CapabilityStrncpy_hook(char* destination, const char* source, size_t count)
+{
+    const uintptr_t caller = reinterpret_cast<uintptr_t>(
+        __builtin_extract_return_addr(__builtin_return_address(0)));
+    return DispatchCapabilityCopy(caller - g_libGTASA, destination, source, count, EngineStrncpy);
+}
+
+static void InstallCapabilityTokenFix()
+{
+    // Fail closed if a different engine is ever packaged: these are the
+    // exact call and PLT instructions inspected in the current ARM64 ELF.
+    static const uint32_t plt[] = {0xb00030d0, 0xf9467e11, 0x9133e210, 0xd61f0220};
+    bool callsMatch = true;
+    for (auto returnOffset : kCapabilityCopyReturns)
+    {
+        const auto displacement = (int64_t(0x22f890) - int64_t(returnOffset - 4)) / 4;
+        const uint32_t expected = 0x94000000u | (uint32_t(displacement) & 0x03ffffffu);
+        uint32_t actual;
+        memcpy(&actual, reinterpret_cast<void*>(g_libGTASA + returnOffset - 4), sizeof(actual));
+        callsMatch = callsMatch && actual == expected;
+    }
+    if (memcmp(reinterpret_cast<void*>(g_libGTASA + 0x22f890), plt, sizeof(plt)) != 0 ||
+        !callsMatch)
+    {
+        FLog("ASAN capability-token fix skipped: engine instruction mismatch");
+        return;
+    }
+    CHook::InstallPLT(g_libGTASA + 0x848cf8, &CapabilityStrncpy_hook, &EngineStrncpy);
+    FLog("ASAN capability-token overlap fix installed (all 12 capability copy sites)");
+}
+#endif
+
 void InjectHooks()
 {
     FLog("InjectHooks");
+#if defined(GS_NATIVE_ASAN) && defined(__aarch64__)
+    InstallCapabilityTokenFix();
+#endif
     CHook::Write(g_libGTASA + (VER_x32 ? 0x678954 : 0x84F2D0), &Scene);
 
 #if !VER_x32 // mb all.. wtf crash x64?
@@ -2051,6 +2130,7 @@ void InstallHooks()
 
     CHook::InlineHook("_ZN5CDraw6SetFOVEfb", &CDraw__SetFOV_hook, &CDraw__SetFOV);
 
+    CHook::InlineHook("_Z12CdStreamReadiPvjj", &CdStreamReadCapacity_hook, &EngineCdStreamRead);
     CHook::InlineHook("_ZN10CStreaming5Init2Ev", &CStreaming__Init2_hook, &CStreaming__Init2);
 
 /*#if VER_x32

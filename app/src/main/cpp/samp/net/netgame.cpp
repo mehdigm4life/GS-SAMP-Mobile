@@ -1015,6 +1015,9 @@ void CNetGame::SendChatCommand(const char* szCommand)
 // 0.3.7
 void CNetGame::SetMapIcon(uint8_t byteIconID, float fPosX, float fPosY, float fPosZ, uint8_t byteType, uint32_t dwColor, uint8_t byteStyle)
 {
+	// The network ID is a byte, but only slots 0..99 exist. The pool
+	// table pointer follows this array in CNetGame. Check BEFORE indexing.
+	if (byteIconID >= MAX_MAP_ICONS) return;
 	if (m_dwMapIcon[byteIconID] != 0) {
 		DisableMapIcon(byteIconID);
 	}
@@ -1024,6 +1027,7 @@ void CNetGame::SetMapIcon(uint8_t byteIconID, float fPosX, float fPosY, float fP
 // 0.3.7
 void CNetGame::DisableMapIcon(uint8_t byteIconID)
 {
+	if (byteIconID >= MAX_MAP_ICONS) return;
 	ScriptCommand(&disable_marker, m_dwMapIcon[byteIconID]);
 	m_dwMapIcon[byteIconID] = 0;
 }

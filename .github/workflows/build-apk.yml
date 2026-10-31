@@ -553,6 +553,10 @@ jobs:
 
       - name: Test object material ownership and crash report arbitration
         run: |
+          python3 tests/test_streaming_read_buffer.py
+          python3 tests/test_player_lifetime.py
+          python3 tests/test_material_text_render.py
+          python3 tests/test_map_icon_safety.py
           python3 tests/test_object_material_lifetime.py
           python3 tests/test_crash_report_owner.py
 

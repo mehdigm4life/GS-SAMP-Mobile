@@ -1,0 +1,22 @@
+name: Audit IMG streaming capacity
+on:
+  push:
+    branches: [arena/88ef5877-gs-samp-mobile]
+    paths: ['tools/audit_img_stream_sizes.py', '.github/workflows/audit-img-streaming.yml']
+permissions:
+  contents: read
+jobs:
+  audit:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+      - run: |
+          if ! python3 tools/audit_img_stream_sizes.py > audit.log 2>&1; then
+            python3 - <<'PYERR'
+          from pathlib import Path
+          print('::error::'+Path('audit.log').read_text()[-3500:].replace('%','%25').replace('\n','%0A'))
+          PYERR
+            exit 1
+          fi
+          cat audit.log
