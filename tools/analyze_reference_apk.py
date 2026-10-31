@@ -98,7 +98,7 @@ def elf_info(path, output):
     return result
 
 
-def analyze(apk, project, out):
+def analyze(apk, project, out, project_apk=None):
     out.mkdir(parents=True, exist_ok=True)
     extracted = out / 'native'
     extracted.mkdir(exist_ok=True)
@@ -124,6 +124,19 @@ def analyze(apk, project, out):
         target.parent.mkdir(parents=True, exist_ok=True)
         try: report['project'][key] = elf_info(path, target)
         except Exception as e: report['errors'].append(f'project {key}: {type(e).__name__}: {e}')
+    if project_apk:
+        report['project_apk_sha256'] = sha(project_apk)
+        with zipfile.ZipFile(project_apk) as z:
+            validate_entries(z.infolist())
+            for entry in z.infolist():
+                if not entry.filename.startswith('lib/') or not entry.filename.endswith('/libsamp.so'):
+                    continue
+                key = '/'.join(PurePosixPath(entry.filename).parts[-2:])
+                target = project_out / key
+                target.parent.mkdir(parents=True, exist_ok=True)
+                with z.open(entry) as src, target.open('wb') as dst:
+                    while data := src.read(1024 * 1024): dst.write(data)
+                report['project'][key] = elf_info(target, target)
     for name, ref in report['reference'].items():
         key = '/'.join(PurePosixPath(name).parts[-2:])
         local = report['project'].get(key)
@@ -164,10 +177,11 @@ if __name__ == '__main__':
     p = argparse.ArgumentParser()
     p.add_argument('apk', type=Path)
     p.add_argument('--project', type=Path, default=Path('.'))
+    p.add_argument('--project-apk', type=Path)
     p.add_argument('--out', type=Path, default=Path('analysis'))
     args = p.parse_args()
     try:
-        analyze(args.apk, args.project, args.out)
+        analyze(args.apk, args.project, args.out, args.project_apk)
     except Exception:
         import traceback
         detail = traceback.format_exc()

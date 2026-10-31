@@ -31,3 +31,20 @@ log = Path('analysis/jadx.log')
 if log.exists():
     tail = '\n'.join(log.read_text(errors='replace').splitlines()[-25:])
     print('::notice::'+('JADX log tail:\n'+tail).replace('%','%25').replace('\n','%0A').replace('\r','%0D'))
+# GPU selector context is a focused compatibility comparison, not a port.
+for file in (root/'com/samp/mobile/launcher/util/Util.java', root/'com/samp/mobile/game/SAMP.java'):
+    if not file.exists(): continue
+    source = file.read_text(errors='replace').splitlines()
+    keep = set()
+    for i, line in enumerate(source):
+        if any(k in line for k in ('getStoredGpuType', 'setGpuTextureFormat(', 'getGpuType', 'gl_ext_texture_compression', 'gl_img_texture_compression')):
+            keep.update(range(max(0, i-4), min(len(source), i+13)))
+    text = '\n'.join(f'{i+1}: {source[i]}' for i in sorted(keep))[:2800]
+    print('::notice::'+(str(file.relative_to(root))+' GPU context (partial):\n'+text).replace('%','%25').replace('\n','%0A').replace('\r','%0D'))
+for file in Path('analysis/native').glob('lib/*/libsamp.asm.txt'):
+    source = file.read_text(errors='replace').splitlines()
+    for i,line in enumerate(source):
+        if 'setGpuTextureFormat' in line:
+            text = str(file)+'\n'+'\n'.join(source[i:i+28])
+            print('::notice::'+text.replace('%','%25').replace('\n','%0A').replace('\r','%0D'))
+            break
