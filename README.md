@@ -250,13 +250,22 @@ background, accent outline, pulsing ring while the microphone is open and the
 microphone glyph from `gui/MicGlyph.h` - the same glyph the voice window uses
 for its icon button.
 
-**The action bar.** `OpenButton` started `false`, and every `CButton` returned
-from `draw()` while it was false: the bar showed only the `>>` toggle, so the
-controls the server expects (H, F, Y, N, G, ...) never appeared. The bar is
-always visible now, the two toggles that could hide it are gone, and the layout
-uses one uniform scale factor (the smaller of the two axis ratios) instead of two
-- that is what pushed the right end of the bar outside the panel and made
-captions overflow their buttons.
+**The action bar.** The `>>` / `<<` controls are restored: it starts collapsed
+and can be opened and closed. The previous always-visible change misunderstood
+the report: native GTA sprint/attack widgets are separate from this SA-MP bar.
+The uniform UI scale and drawn microphone are retained.
+
+**Spawn-time rendering investigation (0.8.4.1).** `crash-3.txt` identifies
+`libGTASA.so+0x2530e0` (`EmuShader::AssignShader`) for one failure; two others
+report unknown modules and cannot yet be symbolicated. `logcat-13.txt` ends
+with textdraw creation. Review found and fixed concrete hazards in that path:
+uninitialised texture lookup, duplicate texture release, slot exhaustion and
+reuse, unchecked RPC lengths/IDs, and passing a texture where the engine expects
+a sprite pointer holder. Database registration is now balanced on lookup failure.
+These fixes are not proof that all three device crashes have the same cause.
+`python3 tests/test_textdraw_safety.py` exercises actual slot/lifecycle functions
+with AddressSanitizer and UndefinedBehaviorSanitizer. Device spawn/respawn and
+native widget verification are still required.
 
 **No more aborts.** `RLEDecompress` threw `std::runtime_error` from inside a
 streaming hook; nothing catches there, so `std::terminate()` ended the process
