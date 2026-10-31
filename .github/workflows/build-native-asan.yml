@@ -1,0 +1,116 @@
+name: Spawn memory diagnostic (ASan)
+on:
+  workflow_dispatch:
+  push:
+    branches: [arena/88ef5877-gs-samp-mobile]
+    paths:
+      - '.github/workflows/build-native-asan.yml'
+      - 'app/src/asan/**'
+      - 'app/src/main/cpp/samp/util/OverlapSafeStrncpy.h'
+      - 'tests/test_capability_token.py'
+permissions:
+  contents: write
+jobs:
+  diagnostic:
+    runs-on: ubuntu-latest
+    timeout-minutes: 90
+    env:
+      GRADLE_OPTS: -Dorg.gradle.jvmargs=-Xmx4g -Dfile.encoding=UTF-8
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+      - uses: actions/cache@v4
+        with:
+          path: |
+            ~/.gradle/caches
+            ~/.gradle/wrapper
+          key: asan-gradle-${{ runner.os }}-${{ hashFiles('**/*.gradle', 'gradle/wrapper/gradle-wrapper.properties') }}
+          restore-keys: |
+            asan-gradle-${{ runner.os }}-
+            gradle-${{ runner.os }}-
+      - name: Restore existing app signing key
+        uses: actions/cache/restore@v4
+        with:
+          path: ~/.android/debug.keystore
+          key: android-debug-keystore-v1
+          fail-on-cache-miss: true
+      - name: Install native toolchain and stage ASan runtime
+        shell: bash
+        run: |
+          set -euo pipefail
+          SDKMANAGER="$ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager"
+          yes | "$SDKMANAGER" --licenses >/dev/null 2>&1 || true
+          "$SDKMANAGER" --install 'platforms;android-34' 'build-tools;34.0.0' 'ndk;26.2.11394342' 'cmake;3.22.1'
+          NDK="$ANDROID_HOME/ndk/26.2.11394342"
+          echo "ANDROID_NDK_HOME=$NDK" >> "$GITHUB_ENV"
+          RUNTIME=$(find "$NDK/toolchains/llvm/prebuilt/linux-x86_64/lib/clang" -name libclang_rt.asan-aarch64-android.so -print -quit)
+          test -n "$RUNTIME"
+          mkdir -p app/build/generated/asan/jniLibs/arm64-v8a
+          cp "$RUNTIME" app/build/generated/asan/jniLibs/arm64-v8a/
+      - name: Run native regression tests
+        run: |
+          python3 tests/test_capability_token.py
+          python3 tests/test_map_icon_safety.py
+          python3 tests/test_script_marshalling.py
+          python3 tests/test_object_material_lifetime.py
+          python3 tests/test_crash_report_owner.py
+          python3 tests/test_textdraw_safety.py
+      - name: Build instrumented APK
+        run: |
+          chmod +x gradlew
+          set -o pipefail
+          ./gradlew --no-daemon --stacktrace -PnativeAsan=true :app:testDebugUnitTest :app:assembleDebug 2>&1 | tee asan-build.log
+      - name: Verify instrumentation and Android wrapper packaging
+        run: |
+          set -euo pipefail
+          APK=app/build/outputs/apk/debug/app-debug.apk
+          mkdir -p analysis/asan-native
+          unzip -q "$APK" 'lib/*' -d analysis/asan-native
+          LIB=analysis/asan-native/lib/arm64-v8a
+          test -s "$LIB/wrap.sh"
+          test -s "$LIB/libclang_rt.asan-aarch64-android.so"
+          test -s "$LIB/libc++_shared.so"
+          READELF="$ANDROID_NDK_HOME/toolchains/llvm/prebuilt/linux-x86_64/bin/llvm-readelf"
+          "$READELF" -Ws "$LIB/libsamp.so" > analysis/asan-symbols.txt
+          grep -q '__asan_init' analysis/asan-symbols.txt
+          grep -q '__asan_report_store' analysis/asan-symbols.txt
+          grep -q '__asan_report_load' analysis/asan-symbols.txt
+          "$ANDROID_HOME/build-tools/34.0.0/aapt" dump xmltree "$APK" AndroidManifest.xml > analysis/asan-manifest.txt
+          grep 'android:debuggable.*0xffffffff' analysis/asan-manifest.txt
+          grep 'android:extractNativeLibs.*0xffffffff' analysis/asan-manifest.txt
+          "$ANDROID_HOME/build-tools/34.0.0/apksigner" verify --verbose "$APK"
+          cp "$APK" GS-SAMP-spawn-ASAN.apk
+          sha256sum GS-SAMP-spawn-ASAN.apk | tee analysis/asan-apk.sha256
+          echo '::notice::ASan APK verified: ARM64 runtime, libc++ shared, wrap.sh, instrumented load/store checks, debuggable and extracted native libs.'
+      # Push builds are candidates only: do not ask users to install another
+      # build merely because compilation and host tests passed.
+      - name: Publish explicitly diagnostic prerelease
+        if: github.event_name == 'workflow_dispatch'
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh release create "asan-spawn-${{ github.run_number }}" GS-SAMP-spawn-ASAN.apk \
+            --target "$GITHUB_SHA" --prerelease --latest=false \
+            --title 'Spawn memory diagnostic — ASan (not a stability fix)' \
+            --notes 'ARM64 diagnostic build. Same app ID and signing key; retains existing data. Reports: /storage/emulated/0/GS-SAMP/asan.txt. Higher memory/CPU use. Proprietary prebuilt engine inline accesses are not instrumented. Do not treat this as a verified spawn fix. Source: ${{ github.sha }}.'
+      - name: Preserve exact instrumented native symbols
+        uses: actions/upload-artifact@v4
+        with:
+          name: asan-native-symbols-${{ github.sha }}
+          path: app/.cxx/**/libsamp-unstripped.so
+          include-hidden-files: true
+          if-no-files-found: error
+          retention-days: 30
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: asan-build-evidence
+          path: |
+            GS-SAMP-spawn-ASAN.apk
+            asan-build.log
+            analysis/*.txt
+            analysis/*.sha256
+          retention-days: 14
