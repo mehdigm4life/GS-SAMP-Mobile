@@ -2,6 +2,7 @@
 #include "../game/game.h"
 #include "netgame.h"
 #include "../audiostream.h"
+#include <strings.h>
 
 extern CGame *pGame;
 extern CNetGame *pNetGame;
@@ -589,7 +590,17 @@ void ScrApplyPlayerAnimation(RPCParameters* rpcParams)
 		}
 
 		if (pPlayerPed) {
-			FLog("ApplyAnimation: %s:%s", szAnimLib, szAnimName);
+			// The server's handsup task is configured as a loop in observed RPCs,
+			// so the animation repeatedly lowers and raises the arms. Keep this
+			// compatibility override scoped to PED:handsup only; leave every other
+			// server animation and all other flags untouched.
+			if (!strcasecmp(szAnimLib, "PED") && !strcasecmp(szAnimName, "handsup") && (bLoop || !bFreeze)) {
+				FLog("HandsUp compatibility: server loop=%d freeze=%d; using loop=0 freeze=1", bLoop, bFreeze);
+				bLoop = false;
+				bFreeze = true;
+			}
+			FLog("ApplyAnimation: %s:%s delta=%.3f loop=%d lockX=%d lockY=%d freeze=%d time=%u",
+				szAnimLib, szAnimName, fDelta, bLoop, bLockX, bLockY, bFreeze, dwTime);
 			pPlayerPed->ApplyAnimation(szAnimName, szAnimLib, fDelta, bLoop, bLockX, bLockY, bFreeze, dwTime);
 		}
 	}
@@ -601,10 +612,10 @@ void ScrClearPlayerAnimations(RPCParameters* rpcParams)
 	int iBitLength = rpcParams->numberOfBitsOfData;
 	RakNet::BitStream bsData((unsigned char*)Data, (iBitLength / 8) + 1, false);
 
-	FLog("ClearAnimation");
-
 	PLAYERID playerId;
-	bsData.Read(playerId);
+	if (!bsData.Read(playerId))
+		return;
+	FLog("ClearAnimation: player=%u", unsigned(playerId));
 	RwMatrix mat;
 
 	CPlayerPool * pPlayerPool = NULL;
@@ -1098,7 +1109,9 @@ void ScrSetPlayerSpecialAction(RPCParameters* rpcParams)
 
 	uint8_t byteSpecialAction;
 	RakNet::BitStream bsData(Data, (iBitLength / 8) + 1, false);
-	bsData.Read(byteSpecialAction);
+	if (!bsData.Read(byteSpecialAction))
+		return;
+	FLog("SpecialAction RPC: %u", unsigned(byteSpecialAction));
 
 	CPlayerPool* pPlayerPool = pNetGame->GetPlayerPool();
 	if (!pPlayerPool) return;
