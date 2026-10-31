@@ -2,7 +2,7 @@
 import re
 from pathlib import Path
 root = Path('analysis/jadx/sources')
-patterns = re.compile(r'System\.load|loadLibrary|native\s+\w|https?://|\.so\b|\.apk\b|files\.json', re.I)
+patterns = re.compile(r'System\.load|loadLibrary|native\s+\w|https?://|\.so\b|\.apk\b|files\.json|setGpuTextureFormat|GL_EXT|GL_OES', re.I)
 lines = ['# Decompiled loader/JNI index', '', 'Review candidates, not proven execution paths. URLs below omit queries/fragments.', '']
 count = 0
 for file in sorted(root.rglob('*.java'), key=lambda p: (not str(p.relative_to(root)).startswith('com/samp/'), str(p))):

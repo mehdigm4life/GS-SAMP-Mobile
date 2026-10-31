@@ -166,4 +166,12 @@ if __name__ == '__main__':
     p.add_argument('--project', type=Path, default=Path('.'))
     p.add_argument('--out', type=Path, default=Path('analysis'))
     args = p.parse_args()
-    analyze(args.apk, args.project, args.out)
+    try:
+        analyze(args.apk, args.project, args.out)
+    except Exception:
+        import traceback
+        detail = traceback.format_exc()
+        args.out.mkdir(parents=True, exist_ok=True)
+        (args.out / 'inventory-error.txt').write_text(detail)
+        print('::error::'+detail.replace('%', '%25').replace('\n', '%0A').replace('\r', '%0D'))
+        raise
