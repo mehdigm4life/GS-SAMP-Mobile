@@ -70,6 +70,7 @@ int main(int argc,char**) {
  assert(Ensure(first,second,half,0,UINT32_MAX,true)==Result::Invalid);
  assert(Ensure(first,second,half,1,half+1,true)==Result::Busy);
  half++;assert(Ensure(first,second,half,0,1,true)==Result::Invalid);half--;
+ half=INT32_MAX;assert(Ensure(first,second,half,0,1,true)==Result::Invalid);half=capacity;
  Free();
 }
 '''

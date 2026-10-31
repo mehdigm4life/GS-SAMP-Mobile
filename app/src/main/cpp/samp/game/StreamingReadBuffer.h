@@ -19,6 +19,8 @@ inline Result Ensure(unsigned char*& first, unsigned char*& second,
 {
     if (!first || !second || halfSectors <= 0 || channel > 1 || !sectors)
         return Result::Invalid;
+    if (std::uint64_t(halfSectors) > std::uint64_t(std::numeric_limits<int>::max()) / (2 * Sector))
+        return Result::Invalid; // validate before size_t multiplication on ARM32
     const auto base = reinterpret_cast<std::uintptr_t>(first);
     const auto split = reinterpret_cast<std::uintptr_t>(second);
     const std::size_t halfBytes = std::size_t(halfSectors) * Sector;
