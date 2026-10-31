@@ -1813,7 +1813,7 @@ int mpg123_param_hook(void* mh, int key, long val, int ZERO, double fval)
 
 #if defined(GS_NATIVE_ASAN) && defined(__aarch64__)
 // The shipped engine calls strncpy while trimming a token in place in
-// nvGetSystemCapabilities (BL at 0x320ed8, return address 0x320edc).
+// nvGetSystemCapabilities (all twelve copy sites audited, not just one).
 // ASan correctly rejects that overlap before startup reaches the game.
 // Keep every other call on the original intercepted libc path.
 static char* (*EngineStrncpy)(char*, const char*, size_t);
@@ -1821,9 +1821,7 @@ static char* CapabilityStrncpy_hook(char* destination, const char* source, size_
 {
     const uintptr_t caller = reinterpret_cast<uintptr_t>(
         __builtin_extract_return_addr(__builtin_return_address(0)));
-    if (caller == g_libGTASA + 0x320edc)
-        return CopyCapabilityToken(destination, source, count);
-    return EngineStrncpy(destination, source, count);
+    return DispatchCapabilityCopy(caller - g_libGTASA, destination, source, count, EngineStrncpy);
 }
 
 static void InstallCapabilityTokenFix()
@@ -1831,15 +1829,23 @@ static void InstallCapabilityTokenFix()
     // Fail closed if a different engine is ever packaged: these are the
     // exact call and PLT instructions inspected in the current ARM64 ELF.
     static const uint32_t plt[] = {0xb00030d0, 0xf9467e11, 0x9133e210, 0xd61f0220};
-    const uint32_t call = 0x97fc3a6e;
+    bool callsMatch = true;
+    for (auto returnOffset : kCapabilityCopyReturns)
+    {
+        const auto displacement = (int64_t(0x22f890) - int64_t(returnOffset - 4)) / 4;
+        const uint32_t expected = 0x94000000u | (uint32_t(displacement) & 0x03ffffffu);
+        uint32_t actual;
+        memcpy(&actual, reinterpret_cast<void*>(g_libGTASA + returnOffset - 4), sizeof(actual));
+        callsMatch = callsMatch && actual == expected;
+    }
     if (memcmp(reinterpret_cast<void*>(g_libGTASA + 0x22f890), plt, sizeof(plt)) != 0 ||
-        memcmp(reinterpret_cast<void*>(g_libGTASA + 0x320ed8), &call, sizeof(call)) != 0)
+        !callsMatch)
     {
         FLog("ASAN capability-token fix skipped: engine instruction mismatch");
         return;
     }
     CHook::InstallPLT(g_libGTASA + 0x848cf8, &CapabilityStrncpy_hook, &EngineStrncpy);
-    FLog("ASAN capability-token overlap fix installed (one engine call site)");
+    FLog("ASAN capability-token overlap fix installed (all 12 capability copy sites)");
 }
 #endif
 

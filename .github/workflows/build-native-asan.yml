@@ -85,7 +85,10 @@ jobs:
           cp "$APK" GS-SAMP-spawn-ASAN.apk
           sha256sum GS-SAMP-spawn-ASAN.apk | tee analysis/asan-apk.sha256
           echo '::notice::ASan APK verified: ARM64 runtime, libc++ shared, wrap.sh, instrumented load/store checks, debuggable and extracted native libs.'
+      # Push builds are candidates only: do not ask users to install another
+      # build merely because compilation and host tests passed.
       - name: Publish explicitly diagnostic prerelease
+        if: github.event_name == 'workflow_dispatch'
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
@@ -106,6 +109,7 @@ jobs:
         with:
           name: asan-build-evidence
           path: |
+            GS-SAMP-spawn-ASAN.apk
             asan-build.log
             analysis/*.txt
             analysis/*.sha256
