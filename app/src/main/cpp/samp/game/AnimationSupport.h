@@ -6,8 +6,9 @@
     Everything the client needs to make a server animation actually reach the
     engine, in one place:
 
-      * resolve the animation block of a library name (the table that comes from
-        ANIMGRP.DAT) and read its "loaded" flag - the engine's own
+      * resolve the animation block of a library name against the registered
+        IFP blocks (using ANIMGRP.DAT's association definitions where relevant)
+        and read its "loaded" flag - the engine's own
         IS_ANIMATION_LOADED (script opcode 0x04EE) dereferences the result of
         GetAnimationBlock() without a null check, which is what crashed every
         session that preloaded an unknown block;

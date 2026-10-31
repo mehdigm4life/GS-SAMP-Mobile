@@ -124,32 +124,37 @@ namespace
         destination[length] = '\0';
     }
 
+    bool CanonicalBlockName(const char* requestedName, char* canonicalName, size_t size)
+    {
+        return pGame != nullptr &&
+            pGame->ResolveAnimationBlockName(requestedName, canonicalName, size);
+    }
+
 }
 
 namespace SAMPAnim
 {
     bool BlockExists(const char* lib)
     {
-        if (lib == nullptr || lib[0] == '\0')
-            return false;
-
-        return pGame != nullptr && pGame->HasAnimationBlock(lib);
+        char canonicalName[16]{};
+        return CanonicalBlockName(lib, canonicalName, sizeof(canonicalName));
     }
 
     bool BlockLoaded(const char* lib)
     {
-        if (!BlockExists(lib))
+        char canonicalName[16]{};
+        if (!CanonicalBlockName(lib, canonicalName, sizeof(canonicalName)))
             return false;
 
         GetBlockFn getBlock = GetBlockFunction();
         if (getBlock == nullptr)
         {
             // The 32-bit game exports may omit this helper. The guarded SCM
-            // query checks the block name without the old null dereference.
-            return pGame != nullptr && pGame->IsAnimationLoaded(lib);
+            // query checks the canonical block name without a null dereference.
+            return pGame != nullptr && pGame->IsAnimationLoaded(canonicalName);
         }
 
-        CAnimBlock* block = getBlock(lib);
+        CAnimBlock* block = getBlock(canonicalName);
         return block != nullptr && block->bLoaded;
     }
 
@@ -158,12 +163,16 @@ namespace SAMPAnim
         if (name == nullptr || name[0] == '\0')
             return false;
 
+        char canonicalName[16]{};
+        if (!CanonicalBlockName(lib, canonicalName, sizeof(canonicalName)))
+            return false;
+
         GetBlockFn getBlock = GetBlockFunction();
         GetHierarchyFn getHierarchy = GetHierarchyFunction();
         if (getBlock == nullptr || getHierarchy == nullptr)
             return true; // validated block is loaded; retain the 32-bit SCM path
 
-        CAnimBlock* block = getBlock(lib);
+        CAnimBlock* block = getBlock(canonicalName);
         if (block == nullptr || !block->bLoaded)
             return false;
 
@@ -189,7 +198,7 @@ namespace SAMPAnim
 
     bool ShouldLogMissingBlock(const char* lib)
     {
-        static char logged[8][24];
+        static char logged[128][24];
         static int loggedCount = 0;
 
         if (lib == nullptr)
@@ -216,36 +225,45 @@ namespace SAMPAnim
             ped->m_pRwClump == nullptr || lib == nullptr || name == nullptr)
             return false;
 
-        // Verify the exact block and hierarchy first. Then let the engine's
-        // normal SCM opcode create the ped task. Blending an association
-        // directly onto the clump bypasses the task/controller path used by
-        // the local SA-MP player, which can leave a logged request without a
-        // persistent ped task.
+        char canonicalName[16]{};
+        if (!CanonicalBlockName(lib, canonicalName, sizeof(canonicalName)))
+        {
+            if (ShouldLogMissingBlock(lib))
+                LogAnim("animation block %s is not registered", lib);
+            return false;
+        }
+
+        // Verify the resolved block and hierarchy first. The name passed to
+        // SCM must be the exact spelling stored by CAnimManager: its lookup is
+        // strcmp-based (for example, registered "ped" vs server-sent "PED").
+        // Then let the engine create the normal ped task.
         GetBlockFn getBlock = GetBlockFunction();
         GetHierarchyFn getHierarchy = GetHierarchyFunction();
         if (getBlock == nullptr || getHierarchy == nullptr)
         {
-            // 32-bit keeps the original script route when these private helpers
-            // are not exported. The block has already passed IsAnimationLoaded.
-            ScriptCommand(&apply_animation, pedId, name, lib, delta,
+            // 32-bit keeps the guarded SCM route when private queries are not
+            // exported; the block was resolved through CGame above.
+            ScriptCommand(&apply_animation, pedId, name, canonicalName, delta,
                 opt1, opt2, opt3, opt4, time);
-            LogAnim("animation dispatched through legacy SCM path: ped=%d %s:%s", pedId, lib, name);
+            LogAnim("animation dispatched through legacy SCM path: ped=%d %s->%s:%s",
+                pedId, lib, canonicalName, name);
             return true;
         }
 
-        CAnimBlock* block = getBlock(lib);
+        CAnimBlock* block = getBlock(canonicalName);
         if (block == nullptr || !block->bLoaded)
             return false;
 
         if (getHierarchy(name, block) == nullptr)
         {
-            LogAnim("animation %s is not in block %s", name, lib);
+            LogAnim("animation %s is not in block %s (requested %s)", name, canonicalName, lib);
             return false;
         }
 
-        ScriptCommand(&apply_animation, pedId, name, lib, delta,
+        ScriptCommand(&apply_animation, pedId, name, canonicalName, delta,
             opt1, opt2, opt3, opt4, time);
-        LogAnim("animation dispatched to engine task: ped=%d %s:%s", pedId, lib, name);
+        LogAnim("animation dispatched to engine task: ped=%d %s->%s:%s",
+            pedId, lib, canonicalName, name);
         return true;
     }
 
