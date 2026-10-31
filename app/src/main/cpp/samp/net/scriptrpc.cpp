@@ -699,17 +699,35 @@ void ScrShowTextDraw(RPCParameters* rpcParams)
 	uint16_t wTextDrawID;
 	TEXT_DRAW_TRANSMIT textDrawTransmit;
 	uint16_t wTextLength;
-	RakNet::BitStream bsData(Data, (iBitLength / 8) + 1, false);
-	bsData.Read(wTextDrawID);
-	bsData.Read((char*)& textDrawTransmit, sizeof(TEXT_DRAW_TRANSMIT));
-	bsData.Read(wTextLength);
+	RakNet::BitStream bsData(Data, iBitLength / 8, false);
+
+	/*
+		Every field here comes straight off the wire. wTextLength used to be used
+		as an array index without a bound: a packet that said 4096 wrote 4096 bytes
+		into a 1025 byte stack buffer and then one more byte at szText[4096], and
+		wTextDrawID indexed CTextDrawPool's 3072 entry arrays unguarded. A truncated
+		packet left both variables uninitialised as well, because BitStream::Read()
+		returns false without touching its output. That is how a server packet ends
+		up as a corrupted heap and a crash in an unrelated renderer frame.
+	*/
+	if (!bsData.Read(wTextDrawID)) return;
+	if (wTextDrawID >= MAX_TEXT_DRAWS) {
+		FLog("TextDrawShow: id %u out of range", (unsigned)wTextDrawID);
+		return;
+	}
+
+	memset(&textDrawTransmit, 0, sizeof(TEXT_DRAW_TRANSMIT));
+	if (!bsData.Read((char*)& textDrawTransmit, sizeof(TEXT_DRAW_TRANSMIT))) return;
+	if (!bsData.Read(wTextLength)) return;
 
 	char szText[1024 + 1];
+	memset(szText, 0, sizeof(szText));
 
-	bsData.Read(szText, wTextLength);
-    szText[wTextLength] = 0;
+	if (wTextLength > 1024) return;
+	if (!bsData.Read(szText, wTextLength)) return;
+	szText[wTextLength] = 0;
 
-    pTextDrawPool->New(wTextDrawID, &textDrawTransmit, szText);
+	pTextDrawPool->New(wTextDrawID, &textDrawTransmit, szText);
 }
 // 0.3.7
 void ScrHideTextDraw(RPCParameters* rpcParams)
@@ -721,8 +739,8 @@ void ScrHideTextDraw(RPCParameters* rpcParams)
 	if (pTextDrawPool == nullptr) return;
 
 	uint16_t wTextDrawID;
-	RakNet::BitStream bsData(Data, (iBitLength / 8) + 1, false);
-	bsData.Read(wTextDrawID);
+	RakNet::BitStream bsData(Data, iBitLength / 8, false);
+	if (!bsData.Read(wTextDrawID)) return;
 
 	pTextDrawPool->Delete(wTextDrawID);
 }
@@ -737,14 +755,14 @@ void ScrTextDrawSetString(RPCParameters * rpcParams)
 
 	uint16_t wTextDrawID;
 	uint16_t wTextLength;
-	RakNet::BitStream bsData(Data, (iBitLength / 8) + 1, false);
-	bsData.Read(wTextDrawID);
-	bsData.Read(wTextLength);
+	RakNet::BitStream bsData(Data, iBitLength / 8, false);
+	if (!bsData.Read(wTextDrawID)) return;
+	if (!bsData.Read(wTextLength)) return;
 
 	if (wTextLength < 1024)
 	{
 		char szText[1024 + 1];
-		bsData.Read(szText, wTextLength);
+		if (!bsData.Read(szText, wTextLength)) return;
 		szText[wTextLength] = '\0';
 
 		CTextDraw* pTextDraw = pTextDrawPool->GetAt(wTextDrawID);
