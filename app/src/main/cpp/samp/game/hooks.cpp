@@ -23,6 +23,7 @@
 #include "Coronas.h"
 #include "multitouch.h"
 #include "Streaming.h"
+#include "StreamingReadBuffer.h"
 #include "References.h"
 #include "VisibilityPlugins.h"
 #include "game/Animation/AnimManager.h"
@@ -1794,6 +1795,42 @@ float CDraw__SetFOV_hook(float thiz, float a2)
     return thiz;
 }
 
+static bool (*EngineCdStreamRead)(int32, void*, uint32, uint32);
+static bool CdStreamReadCapacity_hook(int32 channel, void* buffer, uint32 offset, uint32 sectors)
+{
+    // Only engine-owned streaming buffers: leave other users of CdStream alone.
+    if (channel < 0 || channel > 1 || buffer != CStreaming::ms_pStreamingBuffer[channel])
+        return EngineCdStreamRead(channel, buffer, offset, sectors);
+
+    auto& first = CStreaming::ms_pStreamingBuffer[0];
+    auto& second = CStreaming::ms_pStreamingBuffer[1];
+    auto& half = CStreaming::ms_streamingBufferSize;
+    const uint64_t available = half > 0 ? uint64_t(half) * (channel == 0 ? 2 : 1) : 0;
+    if (!sectors) return EngineCdStreamRead(channel, buffer, offset, sectors);
+    auto result = StreamingReadBuffer::Ensure(first, second, half, channel, sectors, false);
+    if (result == StreamingReadBuffer::Result::Fits)
+        return EngineCdStreamRead(channel, buffer, offset, sectors);
+
+    const bool safe = (CStreaming::ms_channel[0].IsIdle() ||
+                      CStreaming::ms_channel[0].LoadStatus == eChannelState::ERR) &&
+                      CStreaming::ms_channel[1].IsIdle();
+    // Synchronize the worker before releasing its allocation; do not grow a
+    // channel that has completed-but-unconsumed model data either.
+    if (safe && result == StreamingReadBuffer::Result::Busy && channel == 0) {
+        CdStreamSync(0); CdStreamSync(1);
+        result = StreamingReadBuffer::Ensure(first, second, half, channel, sectors, true);
+    }
+    if (result != StreamingReadBuffer::Result::Grew && result != StreamingReadBuffer::Result::Fits) {
+        FLog("Streaming read rejected: channel=%d offset=%u sectors=%u capacity=%llu result=%d",
+             channel, offset, sectors, static_cast<unsigned long long>(available), int(result));
+        return false; // never submit an out-of-bounds write
+    }
+    FLog("Streaming buffer resized: channel=%d offset=%u request=%u oldCapacity=%llu newTotal=%u model=%d",
+         channel, offset, sectors, static_cast<unsigned long long>(available), unsigned(half)*2,
+         CStreaming::ms_channel[channel].modelIds[0]);
+    return EngineCdStreamRead(channel, CStreaming::ms_pStreamingBuffer[channel], offset, sectors);
+}
+
 void(*CStreaming__Init2)();
 void CStreaming__Init2_hook()
 {
@@ -2093,6 +2130,7 @@ void InstallHooks()
 
     CHook::InlineHook("_ZN5CDraw6SetFOVEfb", &CDraw__SetFOV_hook, &CDraw__SetFOV);
 
+    CHook::InlineHook("_Z12CdStreamReadiPvjj", &CdStreamReadCapacity_hook, &EngineCdStreamRead);
     CHook::InlineHook("_ZN10CStreaming5Init2Ev", &CStreaming__Init2_hook, &CStreaming__Init2);
 
 /*#if VER_x32
