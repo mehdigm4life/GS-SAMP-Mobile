@@ -371,7 +371,14 @@ namespace SAMPAnim
             }
             else
             {
-                keep = --pending.framesLeft > 0;
+                --pending.framesLeft;
+
+                /* ask again every half second: a request can be dropped by the
+                   streaming channel when it is busy with something else */
+                if ((pending.framesLeft % 30) == 0 && GamePool_Ped_GetAt(pending.pedId) == pending.ped)
+                    Request(pending.lib);
+
+                keep = pending.framesLeft > 0;
                 if (!keep)
                     LogAnim("block %s never finished loading, dropped %s", pending.lib, pending.name);
             }
