@@ -217,24 +217,30 @@ jobs:
         if: always()
         run: |
           set -uo pipefail
-          OFFSETS="0x1b9bfc 0x1cc444"
 
-          SO=""
-          for candidate in $(find app -name 'libsamp-unstripped.so' -type f 2>/dev/null); do
-            echo "candidate: $candidate ($(stat -c%s "$candidate") bytes)"
-            case "$candidate" in
-              *arm64-v8a*) SO="$candidate" ;;
-            esac
-          done
-          if [ -z "$SO" ]; then
-            echo "::notice::no unstripped libsamp.so in the build tree"
-            exit 0
+          # Every crash that has been reported so far, and the library that owns
+          # the offset. A new report appends its line here, so the answer stays
+          # in the build that ships.
+          resolve() {
+            local lib="$1"; shift
+            if [ ! -f "$lib" ]; then
+              echo "::notice::missing $lib"
+              return
+            fi
+            echo "::notice::symbol map from $lib"
+            python3 tools/nearest_symbol.py "$lib" "$@" 2>&1 | while IFS= read -r line; do
+              echo "::notice::$line"
+            done
+          }
+
+          # libsamp.so keeps an unstripped copy next to the build tree; libGTASA.so
+          # is committed with its symbol table.
+          SO=$(find app -name 'libsamp-unstripped.so' -path '*arm64*' -type f 2>/dev/null | head -1)
+          if [ -n "$SO" ]; then
+            resolve "$SO" 0x1b9bfc 0x1cc444
           fi
-          echo "::notice::symbol map from $(basename "$(dirname "$SO")")/$(basename "$SO")"
+          resolve app/src/main/jniLibs/arm64-v8a/libGTASA.so 0x41d8b0
 
-          python3 tools/nearest_symbol.py "$SO" $OFFSETS 2>&1 | while IFS= read -r line; do
-            echo "::notice::$line"
-          done
       - name: Verify native bootstrap (JNI_OnLoad exported)
         run: |
           set -euo pipefail
