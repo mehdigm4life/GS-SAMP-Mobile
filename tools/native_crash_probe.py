@@ -59,7 +59,8 @@ def main():
     else:
         names=[n for n in img.symbols if re.search(r'RLE|Decompress|[Gg][Pp][Uu]|[Dd][Xx][Tt]|OS_FileRead',n)]
         chunks.append('Candidate symbols:\n'+'\n'.join(f'{n} {img.symbols[n]}' for n in names))
-        for n in names[:8]: chunks.append(img.dump(n))
+        names.sort(key=lambda n: (0 if 'TXDBRLE' in n or 'GetRLE' in n else 1,n))
+        for n in names[:6]: chunks.append(img.dump(n))
         # ARM64 PLT entry reached from setGpuTextureFormat in reference v143.
         decoder=Cs(CS_ARCH_ARM64, CS_MODE_ARM)
         chunks.append('GPU PLT 0x345640:\n'+'\n'.join(f'{i.address:x}: {i.mnemonic} {i.op_str}' for i in decoder.disasm(img.data(0x345640,32),0x345640)))
@@ -69,8 +70,9 @@ def main():
             table=img.elf.get_section(sec['sh_link'])
             for r in sec.iter_relocations():
                 symbol=table.get_symbol(r['r_info_sym'])
-                if re.search(r'[Gg][Pp][Uu]|[Dd][Xx][Tt]|RLE|Decompress',symbol.name):
+                if r['r_offset']==0x36e3d8 or re.search(r'[Gg][Pp][Uu]|[Dd][Xx][Tt]|RLE|Decompress',symbol.name):
                     relocs.append(f'{r["r_offset"]:#x}: {symbol.name}')
+                    if r['r_offset']==0x36e3d8 and symbol.name in img.symbols: chunks.insert(2,img.dump(symbol.name))
         chunks.insert(1,'Related relocations:\n'+'\n'.join(relocs))
     args.out.parent.mkdir(parents=True,exist_ok=True)
     args.out.write_text('\n\n'.join(chunks))
