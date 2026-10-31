@@ -11,4 +11,12 @@ jobs:
     timeout-minutes: 10
     steps:
       - uses: actions/checkout@v4
-      - run: python3 tools/audit_img_stream_sizes.py
+      - run: |
+          if ! python3 tools/audit_img_stream_sizes.py > audit.log 2>&1; then
+            python3 - <<'PYERR'
+          from pathlib import Path
+          print('::error::'+Path('audit.log').read_text()[-3500:].replace('%','%25').replace('\n','%0A'))
+          PYERR
+            exit 1
+          fi
+          cat audit.log
