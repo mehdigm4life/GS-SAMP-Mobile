@@ -14,6 +14,25 @@ extern MaterialTextGenerator* pMaterialTextGenerator;
 
 CObject::CObject(int iModel, CVector vecPos, CVector vecRot, float fDrawDistance, uint8_t bAttached)
 {
+    // Initialise owned resources even if engine object creation fails.
+	for (int i = 0; i < 16; i++)
+	{
+		m_MaterialTexture[i] = 0;
+		m_MaterialTextTexture[i] = 0;
+		m_dwMaterialColor[i] = 0;
+		m_iMaterialType[i] = 0;
+
+		/* material text */
+		m_szMaterialText[i] = nullptr;
+		m_iMaterialSize[i] = 0;
+		m_iMaterialFontSize[i] = 0;
+		m_dwMaterialFontColor[i] = 0;
+		m_dwMaterialBackColor[i] = 0;
+		m_iMaterialTextAlign[i] = 0;
+	}
+	m_bHasMaterial = false;
+	m_bHasMaterialText = false;
+
     if(!CModelInfo::GetModelInfo(iModel))
         iModel = 18631; // ????????
 
@@ -54,23 +73,6 @@ CObject::CObject(int iModel, CVector vecPos, CVector vecRot, float fDrawDistance
     m_pEntity->SetMatrix((CMatrix&)m_Matrix);*/
     InstantRotate(vecRot.x, vecRot.y ,vecRot.z);
 
-	for (int i = 0; i < 16; i++)
-	{
-		m_MaterialTexture[i] = 0;
-		m_MaterialTextTexture[i] = 0;
-		m_dwMaterialColor[i] = 0;
-		m_iMaterialType[i] = 0;
-
-		/* material text */
-		m_szMaterialText[i] = nullptr;
-		m_iMaterialSize[i] = 0;
-		m_iMaterialFontSize[i] = 0;
-		m_dwMaterialFontColor[i] = 0;
-		m_dwMaterialBackColor[i] = 0;
-		m_iMaterialTextAlign[i] = 0;
-	}
-	m_bHasMaterial = false;
-	m_bHasMaterialText = false;
 
 	m_bAttachedToPed = bAttached;
 
@@ -79,17 +81,22 @@ CObject::CObject(int iModel, CVector vecPos, CVector vecRot, float fDrawDistance
 
 CObject::~CObject()
 {
-    if(m_pEntity)
+    if (m_pEntity)
+    {
+        const int modelId = m_pEntity->m_nModelIndex;
         ScriptCommand(&destroy_object, m_dwGTAId);
-    CStreaming::RemoveModelIfNoRefs(m_pEntity->m_nModelIndex);
+        m_pEntity = nullptr; // destroy_object invalidates the engine pointer
+        CStreaming::RemoveModelIfNoRefs(modelId);
+    }
 
-	for (int i = 0; i < 16; i++)
-	{
-		if (m_szMaterialText[i] != nullptr) {
-			delete m_szMaterialText[i];
-			m_szMaterialText[i] = nullptr;
-		}
-	}
+    for (int i = 0; i < 16; ++i)
+    {
+        delete[] m_szMaterialText[i];
+        if (m_MaterialTexture[i])
+            RwTextureDestroy(reinterpret_cast<RwTexture*>(m_MaterialTexture[i]));
+        if (m_MaterialTextTexture[i])
+            RwTextureDestroy(reinterpret_cast<RwTexture*>(m_MaterialTextTexture[i]));
+    }
 }
 
 void CObject::Process(float fElapsedTime)
@@ -353,7 +360,7 @@ void CObject::SetMaterial(int iModel, int iMaterialIndex, char* txdname, char* t
 
 	int iTryCount = 0;
 
-	if (iMaterialIndex < 16)
+	if (iMaterialIndex >= 0 && iMaterialIndex < 16)
 	{
 		if (m_MaterialTexture[iMaterialIndex]) {
 			RwTextureDestroy(reinterpret_cast<RwTexture *>(m_MaterialTexture[iMaterialIndex]));
@@ -371,7 +378,7 @@ void CObject::SetMaterial(int iModel, int iMaterialIndex, char* txdname, char* t
 void CObject::SetMaterialText(int index, char* text, int materialSize, char* fontname, int fontSize, bool bold,
 	uint32_t dwFontColor, uint32_t dwBackColor, int textAlignment)
 {
-	if (index >= 16) return;
+	if (index < 0 || index >= 16 || !text) return;
 
 	if (m_MaterialTextTexture[index]) {
         RwTextureDestroy(reinterpret_cast<RwTexture *>(m_MaterialTextTexture[index]));

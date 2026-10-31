@@ -551,6 +551,11 @@ jobs:
           cat anim.md >> "$GITHUB_STEP_SUMMARY"
           exit $status
 
+      - name: Test object material ownership and crash report arbitration
+        run: |
+          python3 tests/test_object_material_lifetime.py
+          python3 tests/test_crash_report_owner.py
+
       - name: Test SCM argument widths and bounds
         run: python3 tests/test_script_marshalling.py
 
@@ -858,6 +863,16 @@ jobs:
           name: samp-mobile-debug-apk
           path: app/build/outputs/apk/debug/**/*.apk
           if-no-files-found: warn
+          retention-days: 30
+
+      - name: Preserve exact native symbols for crash analysis
+        if: success()
+        uses: actions/upload-artifact@v4
+        with:
+          name: native-symbols-${{ github.sha }}
+          path: app/.cxx/**/libsamp-unstripped.so
+          include-hidden-files: true
+          if-no-files-found: error
           retention-days: 30
 
       - name: Upload build logs on failure
