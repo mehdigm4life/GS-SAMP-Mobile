@@ -59,6 +59,10 @@ struct stSettings
 	bool iDialog;
 };
 
+// Set by SAMP.initializeSAMP() to the app-private files/settings.ini path.
+// This is separate from g_pszStorage, which must remain the shared GTA data root.
+void SetSettingsIniPath(const char* path);
+
 class CSettings
 {
 public:
