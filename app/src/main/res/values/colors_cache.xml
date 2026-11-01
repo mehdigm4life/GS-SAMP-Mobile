@@ -1,34 +1,33 @@
 <?xml version="1.0" encoding="utf-8"?>
-<!-- Palette for the in-app cache downloader.
-     Dark navy base with the project's orange accent, so the page looks like a
-     native part of the launcher instead of a bolted-on dialog. -->
+<!-- Cache installer colors alias the launcher palette so its download/verify page
+     shares the same graphite, gold, text and status colors. -->
 <resources>
-    <color name="cache_bg_top">#FF0A1020</color>
-    <color name="cache_bg_mid">#FF101A2E</color>
-    <color name="cache_bg_bottom">#FF070A12</color>
+    <color name="cache_bg_top">@color/launcher_bg</color>
+    <color name="cache_bg_mid">@color/launcher_surface</color>
+    <color name="cache_bg_bottom">@color/launcher_bg</color>
 
-    <color name="cache_glow">#33FF6B35</color>
-    <color name="cache_glow_transparent">#00FF6B35</color>
+    <color name="cache_glow">#26F5C542</color>
+    <color name="cache_glow_transparent">#00F5C542</color>
 
-    <color name="cache_card">#D9131C2C</color>
-    <color name="cache_card_stroke">#26FFFFFF</color>
-    <color name="cache_tile">#14FFFFFF</color>
+    <color name="cache_card">@color/launcher_surface</color>
+    <color name="cache_card_stroke">@color/launcher_outline</color>
+    <color name="cache_tile">@color/launcher_surface_high</color>
 
-    <color name="cache_accent_start">#FFFF8A3D</color>
-    <color name="cache_accent_end">#FFED4319</color>
+    <color name="cache_accent_start">@color/launcher_accent_bright</color>
+    <color name="cache_accent_end">@color/launcher_accent</color>
 
-    <color name="cache_track">#1FFFFFFF</color>
+    <color name="cache_track">@color/launcher_outline</color>
 
-    <color name="cache_text_primary">#FFF2F5FA</color>
-    <color name="cache_text_secondary">#FF9AA7BD</color>
-    <color name="cache_text_muted">#FF6B7A91</color>
+    <color name="cache_text_primary">@color/launcher_text</color>
+    <color name="cache_text_secondary">@color/launcher_text_secondary</color>
+    <color name="cache_text_muted">@color/launcher_text_muted</color>
 
-    <color name="cache_ok">#FF34D399</color>
-    <color name="cache_ok_bg">#1F34D399</color>
-    <color name="cache_warn">#FFFBBF24</color>
-    <color name="cache_warn_bg">#1FFBBF24</color>
-    <color name="cache_error">#FFFF6B6B</color>
-    <color name="cache_error_bg">#1FFF6B6B</color>
-    <color name="cache_danger_bg">#26FF4B25</color>
-    <color name="cache_danger_stroke">#4DFF4B25</color>
+    <color name="cache_ok">@color/launcher_success</color>
+    <color name="cache_ok_bg">#1F54D69A</color>
+    <color name="cache_warn">@color/launcher_accent_bright</color>
+    <color name="cache_warn_bg">@color/launcher_accent_tint</color>
+    <color name="cache_error">@color/launcher_danger</color>
+    <color name="cache_error_bg">#26E87979</color>
+    <color name="cache_danger_bg">#26E87979</color>
+    <color name="cache_danger_stroke">#66E87979</color>
 </resources>
