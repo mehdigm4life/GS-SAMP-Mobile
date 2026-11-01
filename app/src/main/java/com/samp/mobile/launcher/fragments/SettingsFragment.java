@@ -169,10 +169,10 @@ public class SettingsFragment extends Fragment {
         mVoiceSwitch.setOnCheckedChangeListener(new CompoundButton.OnCheckedChangeListener() {
             @Override
             public void onCheckedChanged(CompoundButton compoundButton, boolean b) {
-                new SharedPreferenceCore().setBoolean(requireContext().getApplicationContext(), "AIM", b);
+                new SharedPreferenceCore().setBoolean(requireContext().getApplicationContext(), "VOICE_CHAT", b);
                 try {
                     if(mWini != null) {
-                        mWini.put("gui", "autoaim", b);
+                        mWini.put("gui", "VoiceChatEnable", b);
                         mWini.store();
                     }
                 } catch (IOException e) {
@@ -303,9 +303,30 @@ public class SettingsFragment extends Fragment {
     public void onResume() {
         super.onResume();
 
-        mKeyboardSwitch.setChecked(new SharedPreferenceCore().getBoolean(requireContext().getApplicationContext(), "ANDROID_KEYBOARD"));
-        mVoiceSwitch.setChecked(new SharedPreferenceCore().getBoolean(requireContext().getApplicationContext(), "AIM"));
-        mFPSSwitch.setChecked(new SharedPreferenceCore().getBoolean(requireContext().getApplicationContext(), "FPS_DISPLAY"));
+        SharedPreferenceCore preferences = new SharedPreferenceCore();
+        mKeyboardSwitch.setChecked(preferences.getBoolean(requireContext().getApplicationContext(), "ANDROID_KEYBOARD"));
+
+        // Migrate the old launcher-only AIM toggle once. It used to be written
+        // to gui.autoaim, which the native voice-chat setting never reads.
+        boolean voiceChatEnabled;
+        if (preferences.contains(requireContext(), "VOICE_CHAT")) {
+            voiceChatEnabled = preferences.getBoolean(requireContext(), "VOICE_CHAT");
+        } else {
+            voiceChatEnabled = preferences.contains(requireContext(), "AIM")
+                    ? preferences.getBoolean(requireContext(), "AIM") : true;
+            preferences.setBoolean(requireContext(), "VOICE_CHAT", voiceChatEnabled);
+            if (mWini != null) {
+                try {
+                    mWini.put("gui", "VoiceChatEnable", voiceChatEnabled);
+                    mWini.store();
+                } catch (IOException e) {
+                    Log.e("SettingsFragment", "Could not migrate voice chat setting", e);
+                }
+            }
+        }
+        mVoiceSwitch.setChecked(voiceChatEnabled);
+
+        mFPSSwitch.setChecked(preferences.getBoolean(requireContext().getApplicationContext(), "FPS_DISPLAY"));
         mModifySwitch.setChecked(new SharedPreferenceCore().getBoolean(requireContext().getApplicationContext(), "MODIFIED_DATA"));
         mMonetSwitch.setChecked(new SharedPreferenceCore().getBoolean(requireContext().getApplicationContext(), "MLOADER"));
         autoCompleteTextView.setSelection(new SharedPreferenceCore().getInt(requireContext().getApplicationContext(), "VERSION"));
