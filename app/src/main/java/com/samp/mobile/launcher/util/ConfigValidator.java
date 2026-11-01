@@ -11,9 +11,8 @@ import java.io.OutputStream;
 
 public class ConfigValidator {
     public static void validateConfigFiles(Context context) {
-        // resolve() hands back the file libsamp actually reads and seeds it from
-        // the asset when it is missing, so validation can no longer create a
-        // settings.ini in a folder the game never opens.
+        // Initialize the app-private file used by both the launcher and libsamp.
+        // No settings copy is read from or written into the shared game cache.
         SettingsIni.resolve(context);
         /*File file2 = new File(externalFilesDir, "gta_sa.set");
         if (!file2.exists()) {

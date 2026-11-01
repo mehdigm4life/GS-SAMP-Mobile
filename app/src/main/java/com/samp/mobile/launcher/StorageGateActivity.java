@@ -367,10 +367,8 @@ public class StorageGateActivity extends AppCompatActivity {
     }
 
     /**
-     * Creates the folder skeleton and seeds SAMP/settings.ini from the copy that
-     * ships inside the APK, so the player always has a correctly formatted file
-     * to edit. Called before the "missing data" check so an empty device ends up
-     * with the right tree even when the cache is still absent.
+     * Creates the shared game-folder skeleton and seeds required game assets.
+     * settings.ini is intentionally app-private and is managed by SettingsIni.
      */
     private void prepareGameFolder() {
         try {
@@ -380,8 +378,6 @@ public class StorageGateActivity extends AppCompatActivity {
                 logLine("could not create " + samp);
                 return;
             }
-
-            seedAsset("settings.ini", new File(samp, "settings.ini"));
 
             // libsamp loads SAMP/fonts/arial_bold.ttf while the overlay starts up
             // and ImFontAtlas::AddFontFromFileTTF() aborts the process when the
