@@ -106,7 +106,7 @@ public class StorageGateActivity extends AppCompatActivity {
     /** True while CacheDownloadActivity is on screen. */
     private boolean installerOpen = false;
 
-    /** True once the game has been started; stops onResume from running the flow again. */
+    /** True once the launcher has been opened; stops onResume from running the gate again. */
     private boolean launching = false;
 
     /**
@@ -153,7 +153,7 @@ public class StorageGateActivity extends AppCompatActivity {
             dialogShowing = false;
             ensureLogDir();
             logLine("storage access granted");
-            startGameIfPossible();
+            verifyCacheBeforeLauncher();
         } else if (!dialogShowing) {
             logLine("storage access NOT granted");
             askForStorageAccess();
@@ -253,7 +253,7 @@ public class StorageGateActivity extends AppCompatActivity {
         Log.i(TAG, "legacy storage granted=" + granted);
         logLine("legacy storage granted=" + granted);
         if (granted) {
-            startGameIfPossible();
+            verifyCacheBeforeLauncher();
         } else if (!dialogShowing) {
             askForStorageAccess();
         }
@@ -452,7 +452,7 @@ public class StorageGateActivity extends AppCompatActivity {
      * A spot check of a handful of paths can only ever answer "the folder looks
      * non-empty", which is not the same question as "the tree matches the server".
      */
-    private void startGameIfPossible() {
+    private void verifyCacheBeforeLauncher() {
         prepareGameFolder();
         openInstaller(describeMissingData());
     }
@@ -478,7 +478,7 @@ public class StorageGateActivity extends AppCompatActivity {
                     @Override
                     public void onClick(DialogInterface d, int which) {
                         dialogShowing = false;
-                        startGameIfPossible();
+                        verifyCacheBeforeLauncher();
                     }
                 })
                 .setNegativeButton(R.string.gate_exit, new DialogInterface.OnClickListener() {
@@ -523,9 +523,11 @@ public class StorageGateActivity extends AppCompatActivity {
 
         if (resultCode == RESULT_OK) {
             // The installer only reports success after it compared the whole
-            // tree with the manifest and verified every file.
+            // tree with the manifest and verified every file. Keep the game
+            // behind the launcher so the player can choose a server and adjust
+            // settings before entering SA-MP.
             logLine("cache verified against the server manifest");
-            launchGame();
+            openLauncher();
             return;
         }
 
@@ -534,25 +536,23 @@ public class StorageGateActivity extends AppCompatActivity {
         showMissingDataDialog(missing == null ? "verification failed" : missing);
     }
 
-    private void launchGame() {
+    private void openLauncher() {
         launching = true;
         ensureLogDir();
         logNativeSessionHistory();
-        releaseMemoryBeforeGame();
-        logLine("launching " + GAME_ACTIVITY);
+        logLine("opening the full launcher before " + GAME_ACTIVITY);
         try {
-            // Resolved by name so the game class (and therefore its static
-            // System.loadLibrary() block) is not touched until the intent is
-            // actually handled.
-            Intent intent = new Intent();
-            intent.setClassName(this, GAME_ACTIVITY);
-            intent.addFlags(Intent.FLAG_ACTIVITY_NO_ANIMATION);
+            Intent intent = new Intent(this, MainActivity.class);
             startActivity(intent);
+            // Leave MainActivity at the top of the task. Starting the game
+            // from a server card will place SAMP above it, so Back returns to
+            // the launcher instead of restarting the cache gate.
             finish();
         } catch (Throwable t) {
-            Log.e(TAG, "cannot launch game", t);
-            logLine("cannot launch game: " + Log.getStackTraceString(t));
-            Toast.makeText(this, "Cannot start the game: " + t, Toast.LENGTH_LONG).show();
+            launching = false;
+            Log.e(TAG, "cannot open launcher", t);
+            logLine("cannot open launcher: " + Log.getStackTraceString(t));
+            Toast.makeText(this, "Cannot open the launcher: " + t, Toast.LENGTH_LONG).show();
         }
     }
 
@@ -605,7 +605,7 @@ public class StorageGateActivity extends AppCompatActivity {
      * behind - the signature of a low-memory kill. Dropping what can be dropped
      * before the game starts is the cheapest way to widen that margin.
      */
-    private void releaseMemoryBeforeGame() {
+    public static void releaseMemoryBeforeGame(android.content.Context context) {
         try {
             Runtime rt = Runtime.getRuntime();
             long beforeUsed = rt.totalMemory() - rt.freeMemory();
@@ -622,7 +622,7 @@ public class StorageGateActivity extends AppCompatActivity {
             logLine("memory cleanup failed: " + t);
         }
 
-        waitForMemoryHeadroom();
+        waitForMemoryHeadroom(context);
     }
 
     /**
@@ -635,9 +635,9 @@ public class StorageGateActivity extends AppCompatActivity {
      * free memory: what can be dropped is dropped, and the check is repeated a
      * few times before giving the game its best chance.
      */
-    private void waitForMemoryHeadroom() {
+    private static void waitForMemoryHeadroom(android.content.Context context) {
         try {
-            ActivityManager am = (ActivityManager) getSystemService(ACTIVITY_SERVICE);
+            ActivityManager am = (ActivityManager) context.getSystemService(android.content.Context.ACTIVITY_SERVICE);
             if (am == null) {
                 logLine("memory: ActivityManager unavailable, skipping the headroom check");
                 return;
@@ -675,12 +675,12 @@ public class StorageGateActivity extends AppCompatActivity {
         return new SimpleDateFormat("yyyy-MM-dd HH:mm:ss.SSS", Locale.US).format(new Date());
     }
 
-    private File logFile() {
+    private static File logFile() {
         return new File(new File(LOG_DIR), LOG_FILE);
     }
 
     /** Creates /storage/emulated/0/GS-SAMP if storage access allows it. */
-    private void ensureLogDir() {
+    private static void ensureLogDir() {
         try {
             File dir = new File(LOG_DIR);
             if (!dir.isDirectory() && !dir.mkdirs() && !dir.isDirectory()) {
@@ -697,7 +697,7 @@ public class StorageGateActivity extends AppCompatActivity {
      * Nothing can be written to shared storage before "All files access" is
      * granted, so lines are queued and replayed on the first successful write.
      */
-    private synchronized void logLine(String message) {
+    private static synchronized void logLine(String message) {
         Log.i(TAG, message);
         String line = "[" + timestamp() + "] " + message;
 
@@ -730,7 +730,7 @@ public class StorageGateActivity extends AppCompatActivity {
         }
     }
 
-    private boolean appendTo(File file, String text) {
+    private static boolean appendTo(File file, String text) {
         FileOutputStream fos = null;
         try {
             rotateIfNeeded(file);
@@ -751,7 +751,7 @@ public class StorageGateActivity extends AppCompatActivity {
         }
     }
 
-    private void rotateIfNeeded(File file) {
+    private static void rotateIfNeeded(File file) {
         try {
             if (file.length() > LOG_MAX_BYTES) {
                 File old = new File(file.getParentFile(), LOG_FILE + ".old");
