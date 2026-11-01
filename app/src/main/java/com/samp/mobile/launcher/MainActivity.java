@@ -184,25 +184,25 @@ public class MainActivity extends AppCompatActivity {
                         getServerList().add(sAMPServerInfo);
                     }
                 } catch (JSONException e) {
-                    throw new RuntimeException(e);
+                    Log.e("LauncherServers", "invalid hosted server list response", e);
+                    Toast.makeText(MainActivity.this,
+                            "The hosted server list could not be read. Saved servers are still available.",
+                            Toast.LENGTH_LONG).show();
                 }
 
                 for (Fragment fragment : getSupportFragmentManager().getFragments()) {
-                    if (fragment instanceof ServersFragment) {
-                        while (!fragment.isAdded()) {
-                            try {
-                                Thread.sleep(1000);
-                            } catch (InterruptedException e) {
-                                e.printStackTrace();
-                            }
+                    if (!(fragment instanceof ServersFragment) || !fragment.isAdded()) {
+                        continue;
+                    }
+                    for (Fragment page : fragment.getChildFragmentManager().getFragments()) {
+                        if (!(page instanceof ServerPagesItemFragment)
+                                || ((ServerPagesItemFragment) page).getPage() != 1
+                                || page.getView() == null) {
+                            continue;
                         }
-                        if(fragment.isAdded()) {
-                            for (Fragment fragment2 : fragment.getChildFragmentManager().getFragments()) {
-                                if ((fragment2 instanceof ServerPagesItemFragment) && ((ServerPagesItemFragment) fragment2).getPage() == 1 && fragment2.getView() != null) {
-                                    Log.d("AXL", "getserverslist");
-                                    ((RecyclerView.Adapter) Objects.requireNonNull(((RecyclerView) ((View) fragment2.requireView()).findViewById(R.id.server_recycler)).getAdapter())).notifyDataSetChanged();
-                                }
-                            }
+                        RecyclerView list = page.getView().findViewById(R.id.server_recycler);
+                        if (list != null && list.getAdapter() != null) {
+                            list.getAdapter().notifyDataSetChanged();
                         }
                     }
                 }
@@ -212,8 +212,13 @@ public class MainActivity extends AppCompatActivity {
         }, new Response.ErrorListener() {
             @Override
             public void onErrorResponse(VolleyError error) {
-                Log.d("x1y2z", "error " + error.toString());
-                getServersInfo();
+                // Keep the launcher usable when the hosted-server endpoint is
+                // offline. Saved favorites remain available; retrying here in
+                // a tight loop can otherwise flood the main queue forever.
+                Log.w("LauncherServers", "hosted server list unavailable", error);
+                Toast.makeText(MainActivity.this,
+                        "Hosted servers are unavailable. Your saved servers are still available.",
+                        Toast.LENGTH_LONG).show();
                 z[0] = false;
             }
         }));
@@ -252,7 +257,7 @@ public class MainActivity extends AppCompatActivity {
                     }
                     getFavoriteServerList().get(intValue).setQueried(true);
 
-                    refreshFavoriteServers();
+                    runOnUiThread(() -> refreshFavoriteServers());
                 }
                 else
                     return null;
@@ -265,34 +270,21 @@ public class MainActivity extends AppCompatActivity {
         }
     }
 
-    public void refreshFavoriteServers()
-    {
+    public void refreshFavoriteServers() {
         for (Fragment fragment : getSupportFragmentManager().getFragments()) {
-            if (fragment instanceof ServersFragment) {
-                while (!fragment.isAdded()) {
-                    try {
-                        Thread.sleep(1000);
-                    } catch (InterruptedException e) {
-                        e.printStackTrace();
-                    }
+            if (!(fragment instanceof ServersFragment) || !fragment.isAdded()) {
+                continue;
+            }
+            for (Fragment page : fragment.getChildFragmentManager().getFragments()) {
+                if (!(page instanceof ServerPagesItemFragment)
+                        || ((ServerPagesItemFragment) page).getPage() != 0
+                        || page.getView() == null) {
+                    continue;
                 }
-                if(fragment.isAdded()) {
-                    for (Fragment fragment2 : fragment.getChildFragmentManager().getFragments()) {
-                        if ((fragment2 instanceof ServerPagesItemFragment) && ((ServerPagesItemFragment) fragment2).getPage() == 0 && fragment2 != null) {
-                            RecyclerView view = Objects.requireNonNull( fragment2.requireView().findViewById(R.id.server_recycler));
-                            if(view != null) {
-                                RecyclerView.Adapter adapter = view.getAdapter();
-                                if(adapter != null) {
-                                    view.post(new Runnable() {
-                                        @Override
-                                        public void run() {
-                                            adapter.notifyDataSetChanged();
-                                        }
-                                    });
-                                }
-                            }
-                        }
-                    }
+                RecyclerView list = page.getView().findViewById(R.id.server_recycler);
+                if (list != null && list.getAdapter() != null) {
+                    RecyclerView.Adapter<?> adapter = list.getAdapter();
+                    list.post(adapter::notifyDataSetChanged);
                 }
             }
         }

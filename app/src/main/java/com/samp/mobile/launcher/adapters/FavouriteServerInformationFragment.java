@@ -2,44 +2,26 @@ package com.samp.mobile.launcher.adapters;
 
 import android.app.Activity;
 import android.app.Dialog;
-import android.content.Intent;
 import android.os.Bundle;
 import android.os.Environment;
-import android.provider.MediaStore;
 import android.util.Log;
-import android.view.LayoutInflater;
 import android.view.View;
-import android.view.ViewGroup;
 import android.widget.Button;
 import android.widget.EditText;
 import android.widget.ImageView;
 import android.widget.TextView;
-import android.widget.Toast;
-
-import androidx.annotation.NonNull;
-import androidx.annotation.Nullable;
-import androidx.fragment.app.Fragment;
 
 import com.joom.paranoid.Obfuscate;
 import com.samp.mobile.R;
-import com.samp.mobile.game.GTASA;
-import com.samp.mobile.game.SAMP;
 import com.samp.mobile.launcher.MainActivity;
 import com.samp.mobile.launcher.data.FavoritesInfo;
 import com.samp.mobile.launcher.util.ButtonAnimator;
 import com.samp.mobile.launcher.util.SAMPServerInfo;
-import com.samp.mobile.launcher.util.SettingsIni;
+import com.samp.mobile.launcher.util.ServerLauncher;
 import com.samp.mobile.launcher.util.SharedPreferenceCore;
 
-import org.ini4j.Wini;
-
-import java.io.BufferedReader;
-import java.io.BufferedWriter;
 import java.io.File;
-import java.io.FileReader;
 import java.io.FileWriter;
-import java.io.IOException;
-import java.util.Arrays;
 
 @Obfuscate
 public class FavouriteServerInformationFragment extends Dialog {
@@ -62,9 +44,6 @@ public class FavouriteServerInformationFragment extends Dialog {
     public void onCreate(Bundle savedInstanceState) {
         super.onCreate(savedInstanceState);
         setContentView(R.layout.alertdialog_server);
-
-        File file = new File(act.getExternalFilesDir(null), "favoriteservers.txt");
-        File file2 = new File(act.getExternalFilesDir(null), "favoriteservers_temp.txt");
 
         TextView mHostName = findViewById(R.id.server_hostname);
         TextView mIP = findViewById(R.id.server_ip);
@@ -95,33 +74,11 @@ public class FavouriteServerInformationFragment extends Dialog {
         mSave.setOnTouchListener(new ButtonAnimator(getContext(), mSave));
         mSave.setOnClickListener(new View.OnClickListener() {
             public void onClick(View view) {
-                //try {
-                    /*BufferedReader bufferedReader = new BufferedReader(new FileReader(file));
-                    BufferedWriter bufferedWriter = new BufferedWriter(new FileWriter(file2));
-                    while (true) {
-                        String readLine = bufferedReader.readLine();
-                        if (readLine != null) {
-                            if (!(mFavouriteServerAdapter.mServersInfo.get(position).getAddress() + ":" + mFavouriteServerAdapter.mServersInfo.get(position).getPort()).equals(readLine)) {
-                                bufferedWriter.write(readLine + System.getProperty("line.separator"));
-                            }
-                        } else {
-                            bufferedWriter.close();
-                            bufferedReader.close();
-                            file.delete();
-                            file2.renameTo(file);
-                            dismiss();
-                            mFavouriteServerAdapter.refreshServers();
-                            return;
-                        }
-                    }*/
                 FavoritesInfo.RemoveServer(getContext(), ((MainActivity)act).getFavoriteServerList().get(position).getAddress(), ((MainActivity)act).getFavoriteServerList().get(position).getPort());
                 FavoritesInfo.Save(getContext());
                 ((MainActivity)act).getFavoriteServerList().remove(position);
                 ((MainActivity)act).refreshFavoriteServers();
                 dismiss();
-                //} catch (IOException e) {
-                //    e.printStackTrace();
-               // }
             }
         });
 
@@ -130,17 +87,9 @@ public class FavouriteServerInformationFragment extends Dialog {
         mConnect.setOnClickListener(new View.OnClickListener() {
             @Override
             public void onClick(View view) {
-                File file = SettingsIni.resolve(act);
-                if(file.exists()) {
-                    try {
-                        Wini wini = new Wini(file);
-                        String name = wini.get("client", "name");
-                        wini.put("client", "host", sampServerInfo.getAddress());
-                        wini.put("client", "port", sampServerInfo.getPort());
-                        wini.store();
-                    } catch (IOException e) {
-                        e.printStackTrace();
-                    }
+                if (!ServerLauncher.saveServer(act,
+                        sampServerInfo.getAddress(), sampServerInfo.getPort())) {
+                    return;
                 }
 
                 if(new SharedPreferenceCore().getBoolean(getContext(), "MLOADER"))
@@ -152,7 +101,6 @@ public class FavouriteServerInformationFragment extends Dialog {
                     {
                         file4.delete();
                         try {
-                            file.createNewFile();
                             FileWriter writer = new FileWriter(file4);
                             writer.append("{\n" +
                                     "  \"gtasa_name\": \"libGTASA.so\",\n" +
@@ -173,26 +121,10 @@ public class FavouriteServerInformationFragment extends Dialog {
                     }
                 }
 
-                File file1 = new File(act.getExternalFilesDir(null) + "/Text/american.dxt");
-                if(!file1.exists())
-                {
-                    File file2 = new File(act.getExternalFilesDir(null) + "/Textures/fonts/RussianFont.png");
-                    if(!file2.exists())
-                    {
-                        Toast.makeText(act, "Some important files in your modified data are missing, such as \"Text\" and \"Textures\"" +
-                                "Please, fix it and after try again. ( You can get that files in my discord channel )", Toast.LENGTH_LONG).show();
-
-                        dismiss();
-                    }
-                    else {
-                        act.startActivity(new Intent(act, SAMP.class));
-                        act.finish();
-                        dismiss();
-                    }
-                }
-                else {
-                    act.startActivity(new Intent(act, SAMP.class));
-                    act.finish();
+                // The cache gate has already verified the game files. Do not
+                // block the selected server on legacy app-private Text/Textures
+                // paths: the current cache lives in /storage/emulated/0/GTA.
+                if (ServerLauncher.startGame(act)) {
                     dismiss();
                 }
             }
