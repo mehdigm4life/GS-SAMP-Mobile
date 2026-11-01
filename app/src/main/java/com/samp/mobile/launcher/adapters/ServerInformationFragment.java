@@ -2,44 +2,26 @@ package com.samp.mobile.launcher.adapters;
 
 import android.app.Activity;
 import android.app.Dialog;
-import android.content.DialogInterface;
-import android.content.Intent;
 import android.os.Bundle;
 import android.util.Log;
-import android.view.LayoutInflater;
 import android.view.View;
-import android.view.ViewGroup;
 import android.widget.Button;
 import android.widget.EditText;
 import android.widget.ImageView;
 import android.widget.TextView;
-import android.widget.Toast;
 
-import androidx.annotation.NonNull;
 import androidx.annotation.Nullable;
-import androidx.appcompat.app.AlertDialog;
-import androidx.fragment.app.Fragment;
 
 import com.joom.paranoid.Obfuscate;
 import com.samp.mobile.R;
-import com.samp.mobile.game.GTASA;
-import com.samp.mobile.game.SAMP;
-import com.samp.mobile.launcher.MainActivity;
 import com.samp.mobile.launcher.util.ButtonAnimator;
 import com.samp.mobile.launcher.util.SAMPServerInfo;
-import com.samp.mobile.launcher.util.SettingsIni;
+import com.samp.mobile.launcher.util.ServerLauncher;
 import com.samp.mobile.launcher.util.SharedPreferenceCore;
 
-import org.ini4j.Wini;
-
-import java.io.BufferedReader;
-import java.io.BufferedWriter;
 import java.io.File;
-import java.io.FileReader;
 import java.io.FileWriter;
-import java.io.IOException;
-import java.util.regex.Matcher;
-import java.util.regex.Pattern;
+
 @Obfuscate
 public class ServerInformationFragment extends Dialog {
 
@@ -94,16 +76,9 @@ public class ServerInformationFragment extends Dialog {
         mConnect.setOnClickListener(new View.OnClickListener() {
             @Override
             public void onClick(View view) {
-                File file = SettingsIni.resolve(activity);
-                if(file.exists()) {
-                    try {
-                        Wini wini = new Wini(file);
-                        wini.put("client", "host", sampServerInfo.getAddress());
-                        wini.put("client", "port", sampServerInfo.getPort());
-                        wini.store();
-                    } catch (IOException e) {
-                        e.printStackTrace();
-                    }
+                if (!ServerLauncher.saveServer(activity,
+                        sampServerInfo.getAddress(), sampServerInfo.getPort())) {
+                    return;
                 }
 
                 if(new SharedPreferenceCore().getBoolean(getContext(), "MLOADER"))
@@ -138,26 +113,10 @@ public class ServerInformationFragment extends Dialog {
                     }
                 }
 
-                File file1 = new File(activity.getExternalFilesDir(null) + "/Text/american.dxt");
-                if(!file1.exists())
-                {
-                    File file2 = new File(activity.getExternalFilesDir(null) + "/Textures/fonts/RussianFont.png");
-                    if(!file2.exists())
-                    {
-                        Toast.makeText(activity, "Some important files in your modified data are missing, such as \"Text\" and \"Textures\"" +
-                                "Please, fix it and after try again. ( You can get that files in my discord channel )", Toast.LENGTH_LONG).show();
-
-                        dismiss();
-                    }
-                    else {
-                        activity.startActivity(new Intent(activity, SAMP.class));
-                        activity.finish();
-                        dismiss();
-                    }
-                }
-                else {
-                    activity.startActivity(new Intent(activity, SAMP.class));
-                    activity.finish();
+                // The cache gate has already verified the game files. Do not
+                // block the selected server on legacy app-private Text/Textures
+                // paths: the current cache lives in /storage/emulated/0/GTA.
+                if (ServerLauncher.startGame(activity)) {
                     dismiss();
                 }
             }

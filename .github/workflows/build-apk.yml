@@ -6,6 +6,12 @@ name: Build APK
 # resulting APK as a downloadable artifact.
 on:
   workflow_dispatch:
+    inputs:
+      publish_prerelease:
+        description: Publish a non-latest prerelease for device testing
+        required: false
+        type: boolean
+        default: false
   push:
     branches: [ main ]
   pull_request:
@@ -820,7 +826,7 @@ jobs:
       # Publishing the APK as a release asset gives a stable, clickable
       # download URL instead of the ephemeral Actions artifact zip.
       - name: Publish release
-        if: success()
+        if: success() && ((github.event_name == 'push' && github.ref == 'refs/heads/main') || inputs.publish_prerelease == true)
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
@@ -847,11 +853,22 @@ jobs:
           } > release-notes.md
 
           TAG="build-${GITHUB_RUN_NUMBER}"
-          gh release create "$TAG" "$APK#app-debug.apk" \
-            --repo "$GITHUB_REPOSITORY" \
-            --target "$GITHUB_SHA" \
-            --title "SA-MP Mobile 2.10 - build ${GITHUB_RUN_NUMBER}" \
-            --notes-file release-notes.md
+          if [[ "$GITHUB_EVENT_NAME" == "push" && "$GITHUB_REF" == "refs/heads/main" ]]; then
+            gh release create "$TAG" "$APK#app-debug.apk" \
+              --repo "$GITHUB_REPOSITORY" \
+              --target "$GITHUB_SHA" \
+              --title "SA-MP Mobile 2.10 - build ${GITHUB_RUN_NUMBER}" \
+              --notes-file release-notes.md
+          else
+            echo 'Device-test build; prerelease only, never latest.' >> release-notes.md
+            gh release create "$TAG" "$APK#app-debug.apk" \
+              --repo "$GITHUB_REPOSITORY" \
+              --target "$GITHUB_SHA" \
+              --title "SA-MP Mobile 2.10 - test build ${GITHUB_RUN_NUMBER}" \
+              --notes-file release-notes.md \
+              --prerelease \
+              --latest=false
+          fi
 
       - name: Collect build report
         if: always()
