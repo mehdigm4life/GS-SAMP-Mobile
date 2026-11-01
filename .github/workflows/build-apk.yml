@@ -15,6 +15,7 @@ on:
   push:
     branches: [ main ]
   pull_request:
+    types: [opened, synchronize, reopened, labeled]
     paths:
       - 'app/**'
       - 'build.gradle'
@@ -826,7 +827,7 @@ jobs:
       # Publishing the APK as a release asset gives a stable, clickable
       # download URL instead of the ephemeral Actions artifact zip.
       - name: Publish release
-        if: success() && ((github.event_name == 'push' && github.ref == 'refs/heads/main') || inputs.publish_prerelease == true)
+        if: success() && ((github.event_name == 'push' && github.ref == 'refs/heads/main') || (github.event_name == 'workflow_dispatch' && inputs.publish_prerelease == true) || (github.event_name == 'pull_request' && contains(github.event.pull_request.labels.*.name, 'device-test-apk')) )
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
