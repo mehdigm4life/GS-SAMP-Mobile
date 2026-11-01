@@ -352,7 +352,7 @@
             android:layout_marginTop="22dp"
             android:gravity="center"
             android:fontFamily="@font/montserrat_regular"
-            android:text="SA-MP MOBILE  •  COMMUNITY CLIENT"
+            android:text="SAN ANDREAS ONLINE  •  COMMUNITY CLIENT"
             android:textColor="@color/launcher_text_muted"
             android:textSize="9sp" />
     </LinearLayout>
