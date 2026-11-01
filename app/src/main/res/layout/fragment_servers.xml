@@ -1,35 +1,52 @@
 <?xml version="1.0" encoding="utf-8"?>
-<androidx.constraintlayout.widget.ConstraintLayout xmlns:android="http://schemas.android.com/apk/res/android"
+<LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
     xmlns:app="http://schemas.android.com/apk/res-auto"
     android:layout_width="match_parent"
-    android:layout_height="match_parent">
+    android:layout_height="match_parent"
+    android:background="@drawable/launcher_page_bg"
+    android:orientation="vertical"
+    android:paddingTop="18dp">
+
+    <TextView
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:paddingStart="20dp"
+        android:paddingEnd="20dp"
+        android:fontFamily="@font/montserrat_bold"
+        android:text="Servers"
+        android:textColor="@color/launcher_text"
+        android:textSize="24sp" />
+
+    <TextView
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:layout_marginTop="4dp"
+        android:paddingStart="20dp"
+        android:paddingEnd="20dp"
+        android:text="Choose a world or manage your saved servers."
+        android:textColor="@color/launcher_text_secondary"
+        android:textSize="12sp" />
 
     <com.google.android.material.tabs.TabLayout
         android:id="@+id/tabLayout_servers"
         android:layout_width="match_parent"
-        android:layout_height="@dimen/_45sdp"
-        app:tabGravity="fill"
-        app:tabIndicatorGravity="bottom"
-        app:tabIndicatorHeight="@dimen/_5sdp"
-        android:background="@color/colorPrimary"
+        android:layout_height="50dp"
+        android:layout_marginTop="14dp"
+        android:background="@android:color/transparent"
         app:tabBackground="@android:color/transparent"
-        app:tabIndicatorColor="#FF0037"
-        app:tabSelectedTextColor="#FF0037"
+        app:tabGravity="fill"
+        app:tabIndicatorColor="@color/launcher_accent"
+        app:tabIndicatorFullWidth="false"
+        app:tabIndicatorHeight="3dp"
+        app:tabMode="fixed"
+        app:tabRippleColor="@android:color/transparent"
+        app:tabSelectedTextColor="@color/launcher_accent"
         app:tabTextAppearance="@style/tab_layout_title"
-        app:tabTextColor="#AAA9A9"
-        app:tabMode="auto"
-        app:tabRippleColor="@null"
-        app:layout_constraintEnd_toEndOf="parent"
-        app:layout_constraintStart_toStartOf="parent"
-        app:layout_constraintTop_toTopOf="parent"/>
+        app:tabTextColor="@color/launcher_text_muted" />
 
     <com.samp.mobile.launcher.util.ViewPagerWithoutSwipe
         android:id="@+id/viewPager_servers"
-        android:layout_width="0dp"
+        android:layout_width="match_parent"
         android:layout_height="0dp"
-        app:layout_constraintBottom_toBottomOf="parent"
-        app:layout_constraintEnd_toEndOf="parent"
-        app:layout_constraintStart_toStartOf="parent"
-        app:layout_constraintTop_toBottomOf="@+id/tabLayout_servers" />
-
-</androidx.constraintlayout.widget.ConstraintLayout>
+        android:layout_weight="1" />
+</LinearLayout>

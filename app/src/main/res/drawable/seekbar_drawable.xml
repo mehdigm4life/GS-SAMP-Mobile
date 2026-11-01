@@ -1,19 +1,19 @@
 <?xml version="1.0" encoding="utf-8"?>
 <layer-list xmlns:android="http://schemas.android.com/apk/res/android">
-  <item android:id="@android:id/background">
-    <shape>
-      <solid android:color="#000023"/>
-      <corners android:radius="@dimen/_50sdp"/>
-      <size android:height="@dimen/_15sdp"/>
-    </shape>
-  </item>
-  <item android:id="@android:id/progress">
-    <clip>
-      <shape>
-        <solid android:color="#FF0037"/>
-        <corners android:radius="@dimen/_50sdp"/>
-        <size android:height="@dimen/_15sdp"/>
-      </shape>
-    </clip>
-  </item>
+    <item android:id="@android:id/background">
+        <shape>
+            <solid android:color="@color/launcher_outline" />
+            <corners android:radius="50dp" />
+            <size android:height="6dp" />
+        </shape>
+    </item>
+    <item android:id="@android:id/progress">
+        <clip>
+            <shape>
+                <solid android:color="@color/launcher_accent" />
+                <corners android:radius="50dp" />
+                <size android:height="6dp" />
+            </shape>
+        </clip>
+    </item>
 </layer-list>

@@ -181,4 +181,19 @@
     <color name="yellow">#fbc02d</color>
     <color name="yellow_active_switch">#ffffba08</color>
     <color name="orange">#ffef4711</color>
+
+    <!-- Launcher-only graphite and gold palette. Game HUD colors stay untouched. -->
+    <color name="launcher_bg">#0B0E12</color>
+    <color name="launcher_surface">#141920</color>
+    <color name="launcher_surface_high">#1B222B</color>
+    <color name="launcher_outline">#2C3540</color>
+    <color name="launcher_text">#F5F6F8</color>
+    <color name="launcher_text_secondary">#A8B0BB</color>
+    <color name="launcher_text_muted">#747F8C</color>
+    <color name="launcher_accent">#F5C542</color>
+    <color name="launcher_accent_bright">#FFD968</color>
+    <color name="launcher_accent_deep">#C8941B</color>
+    <color name="launcher_accent_tint">#26F5C542</color>
+    <color name="launcher_success">#54D69A</color>
+    <color name="launcher_danger">#E87979</color>
 </resources>
