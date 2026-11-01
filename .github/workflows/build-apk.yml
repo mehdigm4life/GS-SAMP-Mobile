@@ -786,7 +786,8 @@ jobs:
             fi
           }
 
-          expect_present "$SO" "net: configured server %s:%d (from %sSAMP/settings.ini)"
+          expect_present "$SO" "net: configured server %s:%d (from app-private settings.ini)"
+          expect_present "$SO" "Java_com_samp_mobile_game_SAMP_setSettingsIniPath"
           expect_present "$SO" "net: connect attempt %s:%d"
           expect_present "$SO" "raknet: connecting to %s:%u (client port %u)"
           expect_absent  "$SO" "94.23.168.153"
