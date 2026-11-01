@@ -29,7 +29,7 @@
                 android:layout_weight="1"
                 android:fontFamily="@font/montserrat_bold"
                 android:letterSpacing="0.12"
-                android:text="SA-MP MOBILE"
+                android:text="SAN ANDREAS ONLINE"
                 android:textColor="@color/launcher_accent"
                 android:textSize="12sp" />
 
@@ -222,7 +222,7 @@
                     android:id="@+id/internet_button"
                     android:layout_width="48dp"
                     android:layout_height="48dp"
-                    android:contentDescription="Open SA-MP Mobile website"
+                    android:contentDescription="Open San Andreas Online website"
                     android:padding="4dp"
                     android:src="@drawable/internet" />
                 <TextView
@@ -241,7 +241,7 @@
             android:layout_height="wrap_content"
             android:layout_marginTop="22dp"
             android:gravity="center"
-            android:text="SA-MP MOBILE  •  MULTIPLAYER"
+            android:text="CREATED BY MEHDI GM"
             android:textColor="@color/launcher_text_muted"
             android:textSize="9sp" />
     </LinearLayout>
