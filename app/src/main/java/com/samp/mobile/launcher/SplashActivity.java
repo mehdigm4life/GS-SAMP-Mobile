@@ -288,7 +288,8 @@ public class SplashActivity extends AppCompatActivity {
         if (prefs.getBoolean("firstrun", true)) {
             new SharedPreferenceCore().setInt(getApplicationContext(), "FPS_LIMIT", 60);
             new SharedPreferenceCore().setInt(getApplicationContext(), "MESSAGE_COUNT", 6);
-            new SharedPreferenceCore().setBoolean(getApplicationContext(), "AIM", false);
+            new SharedPreferenceCore().setBoolean(getApplicationContext(), "AIM", false); // legacy key
+            new SharedPreferenceCore().setBoolean(getApplicationContext(), "VOICE_CHAT", true);
             new SharedPreferenceCore().setBoolean(getApplicationContext(), "MODIFIED_DATA", false);
             new SharedPreferenceCore().setBoolean(getApplicationContext(), "AML", false);
             new SharedPreferenceCore().setBoolean(getApplicationContext(), "CLEO", false);

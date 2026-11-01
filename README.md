@@ -178,7 +178,14 @@ Now:
 * `SettingsIni.resolve()` is the single path helper used by the server browser,
   the settings screen and `ConfigValidator`; it creates the private file from
   APK-bundled defaults when missing, and the game receives that same path before
-  native settings initialization.
+  native settings initialization,
+* favorite servers are stored atomically in app-private `files/SAMP/favorites.json`,
+  while launcher-only flags such as Monet Loader remain in private SharedPreferences;
+  Android backup is disabled so these reset on uninstall/reinstall, and Clear data
+  clears them as well. The old external favorites
+  file is intentionally not read, so an upgraded install starts with an empty list,
+* the Voice chat switch updates `[gui] VoiceChatEnable`, the exact key read by the
+  native settings loader; launcher defaults are aligned with the INI defaults.
 
 ### Diagnosing a start that dies
 

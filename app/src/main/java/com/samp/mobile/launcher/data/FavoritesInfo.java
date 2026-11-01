@@ -1,164 +1,169 @@
 package com.samp.mobile.launcher.data;
 
 import android.content.Context;
-import android.os.Environment;
+import android.util.Log;
 
 import com.samp.mobile.launcher.util.Util;
+
+import org.json.JSONArray;
+import org.json.JSONObject;
 
 import java.io.BufferedWriter;
 import java.io.File;
 import java.io.FileInputStream;
-import java.io.FileWriter;
+import java.io.FileOutputStream;
+import java.io.OutputStreamWriter;
+import java.nio.charset.StandardCharsets;
+import java.nio.file.AtomicMoveNotSupportedException;
+import java.nio.file.Files;
+import java.nio.file.StandardCopyOption;
 import java.util.ArrayList;
 import java.util.Iterator;
-import org.json.JSONArray;
-import org.json.JSONObject;
 
-/* renamed from: ru.unisamp_mobile.launcher.FavoritesInfo */
+/** Stores favorite servers in app-private storage, erased with app data/uninstall. */
 public class FavoritesInfo {
-    private static boolean bLoaded = false;
-    private static ArrayList<FavoriteServerData> serverList = new ArrayList<>();
+    private static final String TAG = "FavoritesInfo";
+    private static final String RELATIVE_PATH = "SAMP/favorites.json";
 
-    public static void Load(Context mContext) {
-        File file = new File(mContext.getExternalFilesDir(null), "SAMP/favorites.json");
-        if (!file.exists()) {
-            ClearFavorites();
+    private static boolean bLoaded = false;
+    private static final ArrayList<FavoriteServerData> serverList = new ArrayList<>();
+
+    private static File favoritesFile(Context context) {
+        return new File(context.getFilesDir(), RELATIVE_PATH);
+    }
+
+    public static synchronized void Load(Context context) {
+        if (bLoaded) return;
+
+        serverList.clear();
+        File file = favoritesFile(context);
+        if (!file.isFile()) {
+            bLoaded = true;
             return;
         }
-        try {
-            String InputStreamToString = Util.InputStreamToString(new FileInputStream(file));
-            if (InputStreamToString.isEmpty()) {
-                ClearFavorites();
-                return;
-            }
-            JSONArray jSONArray = new JSONObject(InputStreamToString).getJSONArray("servers");
-            for (int i = 0; i < jSONArray.length(); i++) {
-                JSONObject jSONObject = jSONArray.getJSONObject(i);
-                int i2 = jSONObject.getInt("id");
-                int i3 = jSONObject.getInt("serverid");
-                String str = "";
-                int i4 = 7777;
-                if (!jSONObject.isNull("ip")) {
-                    str = jSONObject.getString("ip");
+
+        try (FileInputStream input = new FileInputStream(file)) {
+            String contents = Util.InputStreamToString(input);
+            if (!contents.isEmpty()) {
+                JSONArray servers = new JSONObject(contents).getJSONArray("servers");
+                for (int i = 0; i < servers.length(); i++) {
+                    JSONObject item = servers.getJSONObject(i);
+                    int id = item.getInt("id");
+                    int serverId = item.getInt("serverid");
+                    String ip = item.isNull("ip") ? "" : item.getString("ip");
+                    int port = item.isNull("port") ? 7777 : item.getInt("port");
+                    serverList.add(new FavoriteServerData(id, serverId, ip, port));
                 }
-                if (!jSONObject.isNull("port")) {
-                    i4 = jSONObject.getInt("port");
-                }
-                serverList.add(new FavoriteServerData(i2, i3, str, i4));
             }
             bLoaded = true;
         } catch (Exception e) {
-            e.printStackTrace();
-            ClearFavorites();
-            Save(mContext);
+            Log.e(TAG, "Could not read private favorites file; starting with an empty list", e);
+            serverList.clear();
+            bLoaded = true;
+            Save(context);
         }
     }
 
-    public static void Save(Context context) {
+    public static synchronized void Save(Context context) {
+        File file = favoritesFile(context);
+        File parent = file.getParentFile();
+        if (parent == null || (!parent.isDirectory() && !parent.mkdirs() && !parent.isDirectory())) {
+            Log.e(TAG, "Could not create private favorites directory for " + file);
+            return;
+        }
+
+        File temporary = new File(parent, file.getName() + ".tmp");
         try {
-            File file = new File(context.getExternalFilesDir(null), "SAMP/favorites.json");
-            if (file.exists()) {
-                file.delete();
+            JSONObject root = new JSONObject();
+            JSONArray servers = new JSONArray();
+            for (FavoriteServerData server : serverList) {
+                JSONObject item = new JSONObject();
+                item.put("id", server.id);
+                item.put("serverid", server.serverid);
+                item.put("ip", server.ip);
+                item.put("port", server.port);
+                servers.put(item);
             }
-            JSONObject jSONObject = new JSONObject();
-            jSONObject.put("servers", new JSONArray());
-            JSONArray jSONArray = jSONObject.getJSONArray("servers");
-            for (int i = 0; i < serverList.size(); i++) {
-                FavoriteServerData favoriteServerData = serverList.get(i);
-                jSONArray.put(i, new JSONObject());
-                JSONObject jSONObject2 = jSONArray.getJSONObject(i);
-                jSONObject2.put("id", favoriteServerData.id);
-                jSONObject2.put("serverid", favoriteServerData.serverid);
-                jSONObject2.put("ip", favoriteServerData.ip);
-                jSONObject2.put("port", favoriteServerData.port);
+            root.put("servers", servers);
+
+            try (FileOutputStream stream = new FileOutputStream(temporary, false);
+                 BufferedWriter writer = new BufferedWriter(
+                         new OutputStreamWriter(stream, StandardCharsets.UTF_8))) {
+                writer.write(root.toString());
+                writer.flush();
+                stream.getFD().sync();
             }
-            new File(context.getExternalFilesDir(null), "SAMP/").mkdirs();
-            file.createNewFile();
-            BufferedWriter bufferedWriter = new BufferedWriter(new FileWriter(file));
-            bufferedWriter.write(jSONObject.toString());
-            bufferedWriter.close();
+
+            try {
+                Files.move(temporary.toPath(), file.toPath(),
+                        StandardCopyOption.REPLACE_EXISTING, StandardCopyOption.ATOMIC_MOVE);
+            } catch (AtomicMoveNotSupportedException e) {
+                Files.move(temporary.toPath(), file.toPath(), StandardCopyOption.REPLACE_EXISTING);
+            }
+            bLoaded = true;
         } catch (Exception e) {
-            e.printStackTrace();
+            temporary.delete();
+            Log.e(TAG, "Could not save private favorites file " + file, e);
         }
     }
 
-    public static boolean AddServer(Context context, int i, int i2, String str, int i3) {
-        if (!bLoaded) {
-            Load(context);
+    public static synchronized boolean AddServer(Context context, int id, int serverId, String ip, int port) {
+        if (!bLoaded) Load(context);
+        for (FavoriteServerData favorite : serverList) {
+            if (favorite.ip.equals(ip) && favorite.port == port) return false;
         }
-        Iterator<FavoriteServerData> it = serverList.iterator();
-        while (it.hasNext()) {
-            FavoriteServerData next = it.next();
-            if (next.ip.equals(str) && next.port == i3) {
-                return false;
-            }
-        }
-        serverList.add(new FavoriteServerData(i, i2, str, i3));
+        serverList.add(new FavoriteServerData(id, serverId, ip, port));
         return true;
     }
 
-    public static boolean RemoveServer(Context context, String str, int i) {
-        if (!bLoaded) {
-            Load(context);
-        }
-        Iterator<FavoriteServerData> it = serverList.iterator();
-        while (it.hasNext()) {
-            FavoriteServerData next = it.next();
-            if (next.ip.equals(str) && next.port == i) {
-                serverList.remove(next);
+    public static synchronized boolean RemoveServer(Context context, String ip, int port) {
+        if (!bLoaded) Load(context);
+        Iterator<FavoriteServerData> iterator = serverList.iterator();
+        while (iterator.hasNext()) {
+            FavoriteServerData favorite = iterator.next();
+            if (favorite.ip.equals(ip) && favorite.port == port) {
+                iterator.remove();
                 return true;
             }
         }
         return false;
     }
 
-    public static boolean IsServerExists(Context context, int i, int i2, String str, int i3, boolean z) {
-        if (!bLoaded) {
-            Load(context);
-        }
-        Iterator<FavoriteServerData> it = serverList.iterator();
-        while (it.hasNext()) {
-            FavoriteServerData next = it.next();
-            if (next.id == i && next.serverid == i2 && i != 0 && i2 != 0 && next.ip.equals("")) {
-                if (z) {
-                    next.queried = true;
-                }
-                next.ip = str;
-                next.port = i3;
+    public static synchronized boolean IsServerExists(Context context, int id, int serverId,
+                                                       String ip, int port, boolean markQueried) {
+        if (!bLoaded) Load(context);
+        for (FavoriteServerData favorite : serverList) {
+            if (favorite.id == id && favorite.serverid == serverId
+                    && id != 0 && serverId != 0 && favorite.ip.isEmpty()) {
+                if (markQueried) favorite.queried = true;
+                favorite.ip = ip;
+                favorite.port = port;
                 Save(context);
                 return true;
-            } else if (next.ip.equals(str) && next.port == i3) {
-                if (z) {
-                    next.queried = true;
-                }
+            }
+            if (favorite.ip.equals(ip) && favorite.port == port) {
+                if (markQueried) favorite.queried = true;
                 return true;
             }
         }
         return false;
     }
 
-    public static FavoriteServerData GetServerByIpAndPort(Context context, String str, int i) {
-        if (!bLoaded) {
-            Load(context);
-        }
-        Iterator<FavoriteServerData> it = serverList.iterator();
-        while (it.hasNext()) {
-            FavoriteServerData next = it.next();
-            if (next.ip.equals(str) && next.port == i) {
-                return next;
-            }
+    public static synchronized FavoriteServerData GetServerByIpAndPort(Context context, String ip, int port) {
+        if (!bLoaded) Load(context);
+        for (FavoriteServerData favorite : serverList) {
+            if (favorite.ip.equals(ip) && favorite.port == port) return favorite;
         }
         return null;
     }
 
-    public static ArrayList<FavoriteServerData> getServerList(Context context) {
-        if (!bLoaded) {
-            Load(context);
-        }
+    public static synchronized ArrayList<FavoriteServerData> getServerList(Context context) {
+        if (!bLoaded) Load(context);
         return new ArrayList<>(serverList);
     }
 
-    static void ClearFavorites() {
+    static synchronized void ClearFavorites() {
         serverList.clear();
+        bLoaded = true;
     }
 }
