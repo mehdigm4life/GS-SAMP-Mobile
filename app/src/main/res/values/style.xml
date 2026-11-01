@@ -3,4 +3,15 @@
     <style name="tab_layout_title" parent="@android:style/TextAppearance.Widget.TabWidget">
         <item name="android:fontFamily">@font/montserrat_bold</item>
     </style>
+
+    <style name="Theme.SAMPLauncher.Main" parent="Theme.AppCompat.NoActionBar">
+        <item name="colorPrimary">@color/launcher_bg</item>
+        <item name="colorPrimaryDark">@color/launcher_bg</item>
+        <item name="colorAccent">@color/launcher_accent</item>
+        <item name="android:colorAccent">@color/launcher_accent</item>
+        <item name="android:windowBackground">@color/launcher_bg</item>
+        <item name="android:statusBarColor">@color/launcher_bg</item>
+        <item name="android:navigationBarColor">@color/launcher_bg</item>
+        <item name="android:windowLightStatusBar">false</item>
+    </style>
 </resources>

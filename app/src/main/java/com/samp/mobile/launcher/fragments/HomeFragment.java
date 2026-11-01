@@ -24,6 +24,10 @@ public class HomeFragment extends Fragment {
 
         ((MainActivity)getActivity()).hideKeyboard(getActivity());
 
+        View browseServers = view.findViewById(R.id.browse_servers);
+        browseServers.setOnTouchListener(new ButtonAnimator(getContext(), browseServers));
+        browseServers.setOnClickListener(v -> ((MainActivity) requireActivity()).openServersTab());
+
         ImageView yt_image = (ImageView) view.findViewById(R.id.youtube_logo);
         yt_image.setOnTouchListener(new ButtonAnimator(getContext(), yt_image));
         yt_image.setOnClickListener(new View.OnClickListener() {

@@ -13,6 +13,7 @@ import android.view.ViewGroup;
 import android.view.WindowManager;
 import android.view.inputmethod.InputMethodManager;
 import android.widget.ImageView;
+import android.widget.TextView;
 import android.widget.Toast;
 
 import androidx.annotation.NonNull;
@@ -66,7 +67,7 @@ import java.util.concurrent.TimeUnit;
 @Obfuscate
 public class MainActivity extends AppCompatActivity {
 
-    public String[] tabTitles = { "Servers", "Info", "Settings" };
+    public String[] tabTitles = { "Home", "Servers", "Settings" };
     public int[] tabImages = { R.drawable.ic_mainmenu, R.drawable.ic_server, R.drawable.ic_settingsmenu};
     public int[] tabSelectedImages = { R.drawable.ic_mainmenu_on, R.drawable.ic_serveron, R.drawable.ic_settingsmenu_on};
 
@@ -114,40 +115,65 @@ public class MainActivity extends AppCompatActivity {
 
         tabLayout.setupWithViewPager(pa);
 
-        for(int  i = 0; i < tabLayout.getTabCount(); i++)
-        {
-            View inflate = LayoutInflater.from(this).inflate(R.layout.tablayout_item, (ViewGroup) tabLayout, false);
-
-            ImageView image = inflate.findViewById(R.id.imageView2);
-            image.setBackgroundResource(tabImages[i]);
-
-            Objects.requireNonNull(tabLayout.getTabAt(i)).setCustomView(inflate);
-
-            tabLayout.clearOnTabSelectedListeners();
-            tabLayout.addOnTabSelectedListener(new TabLayout.OnTabSelectedListener() {
-                @Override
-                public void onTabSelected(TabLayout.Tab tab) {
-                    getWindow().setSoftInputMode(WindowManager.LayoutParams.SOFT_INPUT_STATE_ALWAYS_HIDDEN);
-                    pa.setCurrentItem(tab.getPosition(), true);
-                    ((ImageView)tab.getCustomView().findViewById(R.id.imageView2)).setBackgroundResource(tabSelectedImages[tab.getPosition()]);
-                }
-
-                @Override
-                public void onTabUnselected(TabLayout.Tab tab) {
-                    ((ImageView)tab.getCustomView().findViewById(R.id.imageView2)).setBackgroundResource(tabImages[tab.getPosition()]);
-                }
-
-                @Override
-                public void onTabReselected(TabLayout.Tab tab) {
-
-                }
-            });
-
+        for (int i = 0; i < tabLayout.getTabCount(); i++) {
+            View custom = LayoutInflater.from(this).inflate(R.layout.tablayout_item, tabLayout, false);
+            ImageView image = custom.findViewById(R.id.imageView2);
+            TextView label = custom.findViewById(R.id.tab_label);
+            image.setImageResource(tabImages[i]);
+            label.setText(tabTitles[i]);
+            Objects.requireNonNull(tabLayout.getTabAt(i)).setCustomView(custom);
+            styleNavigationTab(tabLayout.getTabAt(i), false);
         }
-        ((ImageView)tabLayout.getTabAt(0).getCustomView().findViewById(R.id.imageView2)).setBackgroundResource(tabSelectedImages[0]);
+
+        tabLayout.clearOnTabSelectedListeners();
+        tabLayout.addOnTabSelectedListener(new TabLayout.OnTabSelectedListener() {
+            @Override
+            public void onTabSelected(TabLayout.Tab tab) {
+                getWindow().setSoftInputMode(WindowManager.LayoutParams.SOFT_INPUT_STATE_ALWAYS_HIDDEN);
+                pa.setCurrentItem(tab.getPosition(), true);
+                styleNavigationTab(tab, true);
+            }
+
+            @Override
+            public void onTabUnselected(TabLayout.Tab tab) {
+                styleNavigationTab(tab, false);
+            }
+
+            @Override
+            public void onTabReselected(TabLayout.Tab tab) {
+                pa.setCurrentItem(tab.getPosition(), true);
+            }
+        });
+        styleNavigationTab(tabLayout.getTabAt(0), true);
 
         getServersInfo();
         getFavoriteServersInfo();
+    }
+
+    private void styleNavigationTab(TabLayout.Tab tab, boolean selected) {
+        if (tab == null || tab.getCustomView() == null) {
+            return;
+        }
+        View custom = tab.getCustomView();
+        ImageView icon = custom.findViewById(R.id.imageView2);
+        TextView label = custom.findViewById(R.id.tab_label);
+        int position = tab.getPosition();
+        if (icon != null) {
+            icon.setImageResource(selected ? tabSelectedImages[position] : tabImages[position]);
+        }
+        if (label != null) {
+            label.setTextColor(getResources().getColor(
+                    selected ? R.color.launcher_accent : R.color.launcher_text_muted));
+        }
+        custom.setBackgroundResource(selected
+                ? R.drawable.launcher_tab_selected : android.R.color.transparent);
+    }
+
+    public void openServersTab() {
+        TabLayout navigation = findViewById(R.id.constraintLayout);
+        if (navigation != null && navigation.getTabAt(1) != null) {
+            navigation.getTabAt(1).select();
+        }
     }
 
     public final ArrayList<SAMPServerInfo> getServerList() {
