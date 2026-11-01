@@ -12,6 +12,7 @@ import com.samp.mobile.game.ui.AttachEdit;
 import com.samp.mobile.game.ui.CustomKeyboard;
 import com.samp.mobile.game.ui.LoadingScreen;
 import com.samp.mobile.game.ui.dialog.DialogManager;
+import com.samp.mobile.launcher.util.SettingsIni;
 import com.samp.mobile.launcher.util.SharedPreferenceCore;
 import com.samp.mobile.launcher.util.SignatureChecker;
 
@@ -169,6 +170,15 @@ public class SAMP extends GTASA implements CustomKeyboard.InputListener, HeightP
     @Override
     public void onCreate(Bundle savedInstanceState) {
         Log.i(TAG, "**** onCreate");
+
+        // Seed and configure the private INI before the base game Activity can
+        // trigger native settings loading during its own onCreate().
+        try {
+            setSettingsIniPath(SettingsIni.resolve(this).getAbsolutePath());
+        } catch (UnsatisfiedLinkError e) {
+            Log.e(TAG, "Could not pass private settings path to native client", e);
+        }
+
         super.onCreate(savedInstanceState);
 
         //if(!SignatureChecker.isSignatureValid(this, getPackageName()))
@@ -197,6 +207,7 @@ public class SAMP extends GTASA implements CustomKeyboard.InputListener, HeightP
 
     }
 
+    private native void setSettingsIniPath(String settingsIniPath);
     private native void initializeSAMP();
 
 

@@ -9,8 +9,18 @@
 #include <cstdio>
 #include <cstring>
 #include <string>
+#include <limits.h>
 
 extern CGame *pGame;
+
+// Private settings path supplied by the Android Activity before game startup.
+// Never derive this from g_pszStorage: that path is the shared GTA asset cache.
+static std::string g_settingsIniPath;
+
+void SetSettingsIniPath(const char* path)
+{
+	g_settingsIniPath = path != nullptr ? path : "";
+}
 
 /**
  * mkdir -p. mkdir() only creates the final component, so the full path has to
@@ -41,9 +51,8 @@ static void CreateParentDirectories(const char* filePath)
 }
 
 /**
- * Creates <storage>/SAMP/settings.ini with documented defaults when it does not
- * exist yet, so the player has something to edit instead of a file that only
- * ever appears if they guess the format.
+ * Creates the app-private settings.ini with documented defaults when it does
+ * not exist yet, so the player has a usable internal file immediately.
  *
  * Every value written here matches the fallback used by the reader below, so
  * creating the file never changes behaviour - it only documents it.
@@ -57,15 +66,16 @@ static void WriteDefaultSettingsFile(const char* path)
 	FILE* existing = fopen(path, "r");
 	if (existing != nullptr)
 	{
+		fseek(existing, 0, SEEK_END);
+		long size = ftell(existing);
 		fclose(existing);
-		return;
+		if (size > 0)
+			return;
+		remove(path);
 	}
 
-	// Make sure <storage>/SAMP exists. mkdir() only creates the last path
-	// component, so on a device where /storage/emulated/0/GTA does not exist
-	// yet this used to fail and no settings file was ever written (the log
-	// showed "Could not create .../GTA/SAMP/settings.ini"). CreateParents()
-	// walks the path instead.
+	// Ensure the parent exists if the Android-side seeding could not do so.
+	// This is the app's private files directory, never the shared game cache.
 	CreateParentDirectories(path);
 
 	FILE* fp = fopen(path, "w");
@@ -115,8 +125,11 @@ CSettings::CSettings()
 {
 	FLog("Loading settings..");	
 
-	char buff[0x7F];
-	snprintf(buff, sizeof(buff), "%sSAMP/settings.ini", g_pszStorage);
+	char buff[PATH_MAX];
+	const char* settingsPath = g_settingsIniPath.empty()
+		? "/data/data/com.samp.mobile/files/settings.ini"
+		: g_settingsIniPath.c_str();
+	snprintf(buff, sizeof(buff), "%s", settingsPath);
 
 	INIReader reader(buff);
 

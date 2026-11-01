@@ -150,17 +150,21 @@ Now:
 
 ### The server address comes from settings.ini
 
-`[client] host` and `[client] port` in
-`/storage/emulated/0/GTA/SAMP/settings.ini` are the address the client dials.
-Both used to be ignored: `DoInitStuff()` constructed `CNetGame` with a literal
-`"94.23.168.153", 2305`, so no server configured in the file could ever be
-reached, and the server browser wrote its choice to
-`getExternalFilesDir()/SAMP/settings.ini` - a folder `libsamp` never opens.
+`[client] host` and `[client] port` in the app-private `settings.ini`
+(`files/settings.ini` under Android's private app data directory) are the address
+the client dials. This file is shared by the launcher and native client; it is
+not read from the shared GTA folder, external app files, or cache. Android
+removes it on uninstall or Clear data, and the app seeds it again from the
+bundled defaults on next launch.
+
+Both settings used to be ignored: `DoInitStuff()` constructed `CNetGame` with a
+literal `"94.23.168.153", 2305`, so no server configured in the file could ever
+be reached.
 
 Now:
 
 * the address is read on every start, and `net: configured server <host>:<port>
-  (from <storage>SAMP/settings.ini)` names it in the log,
+  (from app-private settings.ini)` names it in the log,
 * `host` accepts `1.2.3.4`, `1.2.3.4:7777`, `host.name`, quotes, spaces and a
   `samp://`/`udp://` prefix; a port written inside `host` wins over the port key,
 * `RakClient::Connect()` tests the host with `inet_pton` instead of
@@ -172,8 +176,9 @@ Now:
 * every attempt and result is logged: `net: connect attempt <host>:<port>`,
   `net: no response from ...`, `net: connection accepted by ...`,
 * `SettingsIni.resolve()` is the single path helper used by the server browser,
-  the settings screen and `ConfigValidator`, and it seeds the game's file from
-  the old location or the bundled asset when it is missing.
+  the settings screen and `ConfigValidator`; it creates the private file from
+  APK-bundled defaults when missing, and the game receives that same path before
+  native settings initialization.
 
 ### Diagnosing a start that dies
 

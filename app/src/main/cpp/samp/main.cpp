@@ -759,7 +759,7 @@ void DoInitStuff()
 		char szServerHost[128];
 		int iServerPort = 7777;
 		ResolveConfiguredServer(pSettings->Get(), szServerHost, sizeof(szServerHost), &iServerPort);
-		FLog("net: configured server %s:%d (from %sSAMP/settings.ini)", szServerHost, iServerPort, g_pszStorage);
+		FLog("net: configured server %s:%d (from app-private settings.ini)", szServerHost, iServerPort);
 
 		pNetGame = new CNetGame(szServerHost, iServerPort, pSettings->Get().szNickName, pSettings->Get().szPassword);
 		bNetworkInited = true;
@@ -769,10 +769,21 @@ void DoInitStuff()
 }
 
 extern "C" {
+	JNIEXPORT void JNICALL Java_com_samp_mobile_game_SAMP_setSettingsIniPath(JNIEnv *pEnv, jobject thiz, jstring settingsIniPath)
+	{
+		if (settingsIniPath == nullptr) return;
+
+		const char* path = pEnv->GetStringUTFChars(settingsIniPath, nullptr);
+		if (path != nullptr)
+		{
+			SetSettingsIniPath(path);
+			pEnv->ReleaseStringUTFChars(settingsIniPath, path);
+		}
+	}
+
 	JNIEXPORT void JNICALL Java_com_samp_mobile_game_SAMP_initializeSAMP(JNIEnv *pEnv, jobject thiz)
 	{
 		pJavaWrapper = new CJavaWrapper(pEnv, thiz);
-
 	}
 	JNIEXPORT void JNICALL Java_com_samp_mobile_game_SAMP_onInputEnd(JNIEnv *pEnv, jobject thiz, jbyteArray str)
 	{
