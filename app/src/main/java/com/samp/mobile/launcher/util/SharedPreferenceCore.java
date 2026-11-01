@@ -76,6 +76,11 @@ public class SharedPreferenceCore {
         return false;
     }
 
+    public boolean contains(Context context, String key) {
+        main(context);
+        return mSharedPreference.contains(key);
+    }
+
     public long getLong(Context context, String str) {
         main(context);
         if (mSharedPreference.contains(str)) {
