@@ -181,7 +181,8 @@ Now:
   native settings initialization,
 * favorite servers are stored atomically in app-private `files/SAMP/favorites.json`,
   while launcher-only flags such as Monet Loader remain in private SharedPreferences;
-  both are cleared by Android's app-data reset/uninstall. The old external favorites
+  Android backup is disabled so these reset on uninstall/reinstall, and Clear data
+  clears them as well. The old external favorites
   file is intentionally not read, so an upgraded install starts with an empty list,
 * the Voice chat switch updates `[gui] VoiceChatEnable`, the exact key read by the
   native settings loader; launcher defaults are aligned with the INI defaults.
