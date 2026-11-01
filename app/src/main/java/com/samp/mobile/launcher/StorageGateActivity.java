@@ -126,7 +126,7 @@ public class StorageGateActivity extends AppCompatActivity {
         installCrashRecorder();
 
         TextView tv = new TextView(this);
-        tv.setText("SA-MP Mobile\n\nChecking storage access...");
+        tv.setText(getString(R.string.app_name) + "\n\nChecking storage access...");
         tv.setGravity(Gravity.CENTER);
         setContentView(tv);
 
@@ -182,7 +182,8 @@ public class StorageGateActivity extends AppCompatActivity {
 
         String message = Build.VERSION.SDK_INT >= Build.VERSION_CODES.R
                 ? "The game needs access to \"" + GAME_ROOT + "\" to read its data files.\n\n"
-                + "On the next screen enable \"All files access\" / \"Permit access to manage all files\" for SA-MP Mobile, then come back.\n\n"
+                + "On the next screen enable \"All files access\" / \"Permit access to manage all files\" for "
+                + getString(R.string.app_name) + ", then come back.\n\n"
                 + "The game folder must already contain the GTA cache at:\n" + GAME_ROOT
                 : "The game needs storage access to read its data files at:\n" + GAME_ROOT;
 
@@ -230,7 +231,8 @@ public class StorageGateActivity extends AppCompatActivity {
             } catch (Throwable t) {
                 Log.w(TAG, "app details intent unavailable", t);
             }
-            Toast.makeText(this, "Open Settings > Apps > SA-MP Mobile > Permissions manually.",
+            Toast.makeText(this,
+                    "Open Settings > Apps > " + getString(R.string.app_name) + " > Permissions manually.",
                     Toast.LENGTH_LONG).show();
             return;
         }
